@@ -1,0 +1,142 @@
+name: Publish NuGet
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version (for example: 1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nuget-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Pack and Publish
+    runs-on: ubuntu-latest
+
+    env:
+      NUGET_SOURCE_URL: https://api.nuget.org/v3/index.json
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+
+    steps:
+      - name: "📥 Checkout repository"
+        uses: actions/checkout@v6
+
+      - name: "🔧 Setup .NET"
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.x
+
+      - name: "🏷️ Resolve package version"
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${{ inputs.version }}"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid NuGet version: '$version'"
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Using package version: $version"
+
+      - name: "🔐 Validate NuGet API key"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${NUGET_API_KEY}" ]]; then
+            echo "NUGET_API_KEY is not set. Add it in repo settings under Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: "📦 Restore dependencies"
+        run: dotnet restore Mediator.slnx
+
+      - name: "🏗️ Build solution"
+        run: dotnet build Mediator.slnx --no-restore -c Release -p:Version="${{ steps.version.outputs.version }}"
+
+      - name: "📏 Check formatting"
+        run: dotnet format Mediator.slnx --verify-no-changes --no-restore
+
+      - name: "🧪 Run unit tests"
+        run: dotnet test test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj --no-build -c Release --logger "trx;LogFileName=unit-tests.trx"
+
+      - name: "🔌 Run integration tests"
+        run: dotnet test test/Nerdigy.Mediator.IntegrationTests/Nerdigy.Mediator.IntegrationTests.csproj --no-build -c Release --logger "trx;LogFileName=integration-tests.trx"
+
+      - name: "📦 Pack NuGet packages"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/nuget
+
+          projects=(
+            "src/Nerdigy.Mediator.Abstractions/Nerdigy.Mediator.Abstractions.csproj"
+            "src/Nerdigy.Mediator/Nerdigy.Mediator.csproj"
+            "src/Nerdigy.Mediator.DependencyInjection/Nerdigy.Mediator.DependencyInjection.csproj"
+          )
+
+          for project in "${projects[@]}"; do
+            dotnet pack "$project" \
+              --no-build \
+              -c Release \
+              -o artifacts/nuget \
+              -p:Version="${{ steps.version.outputs.version }}"
+          done
+
+      - name: "🚀 Publish packages to NuGet"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          packages=(artifacts/nuget/*.nupkg)
+
+          if [[ "${#packages[@]}" -eq 0 ]]; then
+            echo "No .nupkg files found in artifacts/nuget."
+            exit 1
+          fi
+
+          for package in "${packages[@]}"; do
+            dotnet nuget push "$package" \
+              --source "${NUGET_SOURCE_URL}" \
+              --api-key "${NUGET_API_KEY}" \
+              --skip-duplicate
+          done
+
+      - name: "🧭 Publish symbols to NuGet"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          symbols=(artifacts/nuget/*.snupkg)
+
+          if [[ "${#symbols[@]}" -eq 0 ]]; then
+            echo "No .snupkg files found in artifacts/nuget."
+            exit 1
+          fi
+
+          for symbol in "${symbols[@]}"; do
+            dotnet nuget push "$symbol" \
+              --source "${NUGET_SOURCE_URL}" \
+              --api-key "${NUGET_API_KEY}" \
+              --skip-duplicate
+          done
