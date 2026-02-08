@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/bench/">
+    <Project Path="bench/Nerdigy.Mediator.Benchmarks/Nerdigy.Mediator.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Nerdigy.Mediator.DependencyInjection/Nerdigy.Mediator.DependencyInjection.csproj" />
+    <Project Path="src/Nerdigy.Mediator/Nerdigy.Mediator.csproj" />
+    <Project Path="src/Nerdigy.Mediator.Abstractions/Nerdigy.Mediator.Abstractions.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Nerdigy.Mediator.IntegrationTests/Nerdigy.Mediator.IntegrationTests.csproj" />
+    <Project Path="test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj" />
+  </Folder>
+</Solution>

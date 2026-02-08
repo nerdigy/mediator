@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "📥 Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "🔧 Setup .NET"
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
+
+      - name: "📦 Restore dependencies"
+        run: dotnet restore Mediator.slnx
+
+      - name: "🏗️ Build solution"
+        run: dotnet build Mediator.slnx --no-restore -c Release
+
+      - name: "📏 Check formatting"
+        run: dotnet format Mediator.slnx --verify-no-changes --no-restore
+
+      - name: "🧪 Run unit tests"
+        run: dotnet test test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj --no-build -c Release --logger "trx;LogFileName=unit-tests.trx"
+
+      - name: "🔌 Run integration tests"
+        run: dotnet test test/Nerdigy.Mediator.IntegrationTests/Nerdigy.Mediator.IntegrationTests.csproj --no-build -c Release --logger "trx;LogFileName=integration-tests.trx"
