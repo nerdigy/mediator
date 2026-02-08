@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
+
 using Nerdigy.Mediator.Abstractions;
 
 namespace Nerdigy.Mediator;
@@ -30,7 +31,7 @@ internal static class RequestDispatcher<TResponse>
 
         var requestType = request.GetType();
         var dispatcher = s_dispatchers.GetOrAdd(requestType, static type => BuildDispatcher(type));
-        
+
         return dispatcher(serviceProvider, request, cancellationToken);
     }
 

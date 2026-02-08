@@ -1,6 +1,9 @@
 using System.Runtime.CompilerServices;
+
 using BenchmarkDotNet.Attributes;
+
 using Microsoft.Extensions.DependencyInjection;
+
 using Nerdigy.Mediator.Abstractions;
 using Nerdigy.Mediator.DependencyInjection;
 
