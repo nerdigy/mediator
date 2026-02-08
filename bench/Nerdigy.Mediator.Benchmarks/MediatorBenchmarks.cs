@@ -13,7 +13,7 @@ namespace Nerdigy.Mediator.Benchmarks;
 /// Benchmarks core mediator operations: send, publish, and stream creation.
 /// </summary>
 [MemoryDiagnoser]
-public sealed class MediatorBenchmarks
+public class MediatorBenchmarks
 {
     private ServiceProvider? _serviceProvider;
     private IMediator? _mediator;
