@@ -31,7 +31,7 @@ internal sealed class TestServiceProvider : IServiceProvider
     public object? GetService(Type serviceType)
     {
         ArgumentNullException.ThrowIfNull(serviceType);
-        
+
         _services.TryGetValue(serviceType, out var service);
 
         return service;

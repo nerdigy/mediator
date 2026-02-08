@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
+
 using Nerdigy.Mediator.Abstractions;
 
 namespace Nerdigy.Mediator;
