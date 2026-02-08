@@ -1,5 +1,7 @@
 using System.Reflection;
+
 using Microsoft.Extensions.DependencyInjection;
+
 using Nerdigy.Mediator;
 using Nerdigy.Mediator.Abstractions;
 

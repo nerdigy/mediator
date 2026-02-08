@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+
 using Nerdigy.Mediator.Abstractions;
 using Nerdigy.Mediator.DependencyInjection;
 

@@ -1,4 +1,5 @@
 using Nerdigy.Mediator.Abstractions;
+
 using MediatorRuntime = Nerdigy.Mediator.Mediator;
 
 namespace Nerdigy.Mediator.UnitTests;
