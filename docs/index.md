@@ -10,6 +10,9 @@ hero:
       text: Get Started
       link: /guide/getting-started
     - theme: alt
+      text: LLM Quickstart
+      link: /guide/llm-quickstart
+    - theme: alt
       text: View Contracts
       link: /api/contracts
 
@@ -75,6 +78,9 @@ string response = await mediator.Send(new Ping("hello"));
 
 ## Next Steps
 
+- **[LLM Quickstart](/guide/llm-quickstart)** -- Copy-ready prompts and templates to generate production-ready handlers, behaviors, and streams with minimal iteration.
+- **[Decision Matrix](/guide/decision-matrix)** -- Pick the right interface and dispatch pattern (`Send`, `Publish`, `CreateStream`) quickly.
+- **[Recipe Catalog](/guide/recipes)** -- Intent-based prompts for CQRS, domain events, streaming, validation, and exception recovery.
 - **[Getting Started](/guide/getting-started)** -- Install packages, write your first handler, and dispatch a request in under five minutes.
 - **[Requests](/guide/requests)** -- Request/response patterns, void requests, and handler conventions.
 - **[Pipelines](/guide/pipelines)** -- Pre-processors, behaviors, post-processors, and execution order.

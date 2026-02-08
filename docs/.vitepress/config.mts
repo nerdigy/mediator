@@ -20,17 +20,30 @@ export default defineConfig({
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }]
   ],
   markdown: {
-    theme: 'tokyo-night'
+    theme: 'catppuccin-mocha'
   },
   themeConfig: {
     siteTitle: 'Nerdigy.Mediator',
-    nav: [],
+    nav: [
+      { text: 'LLM Quickstart', link: '/guide/llm-quickstart' },
+      { text: 'Recipes', link: '/guide/recipes' },
+      { text: 'API Cheatsheet', link: '/api/cheatsheet' }
+    ],
     sidebar: [
       {
         text: 'Start Here',
         items: [
           { text: 'Getting Started', link: '/guide/getting-started' },
-          { text: 'Dependency Injection', link: '/guide/dependency-injection' }
+          { text: 'LLM Quickstart', link: '/guide/llm-quickstart' },
+          { text: 'Dependency Injection', link: '/guide/dependency-injection' },
+          { text: 'Decision Matrix', link: '/guide/decision-matrix' }
+        ]
+      },
+      {
+        text: 'LLM Adoption',
+        items: [
+          { text: 'Recipe Catalog', link: '/guide/recipes' },
+          { text: 'Troubleshooting Map', link: '/guide/troubleshooting' }
         ]
       },
       {
@@ -58,6 +71,7 @@ export default defineConfig({
       {
         text: 'Reference',
         items: [
+          { text: 'API Cheatsheet', link: '/api/cheatsheet' },
           { text: 'Contracts', link: '/api/contracts' },
           { text: 'Runtime Behavior', link: '/api/runtime-behavior' }
         ]

@@ -1,0 +1,26 @@
+# Nerdigy.Mediator
+
+> Mediator runtime for .NET 10 with request/response, notification fan-out, async streaming, pipelines, and typed exception handling.
+
+## Canonical Pages
+
+- [/guide/llm-quickstart] LLM-first onboarding prompts, output contracts, and validation commands.
+- [/guide/decision-matrix] Fast contract and dispatch selection (`Send`, `Publish`, `CreateStream`).
+- [/guide/recipes] Copy-ready implementation prompts by use case.
+- [/guide/getting-started] Install, register services, send first request, publish first notification.
+- [/guide/dependency-injection] `AddMediator`, assembly scanning, lifetimes, and publisher strategy setup.
+- [/guide/requests] Request/response and void request patterns.
+- [/guide/notifications] Notification handlers, fan-out, and publisher strategy behavior.
+- [/guide/streaming] `IStreamRequest<T>` and `CreateStream` usage.
+- [/guide/pipelines] Pre-processors, behaviors, post-processors, and ordering.
+- [/guide/exception-handling] Exception handlers/actions and recovery semantics.
+- [/guide/troubleshooting] Symptom to fix mapping for common failures.
+- [/api/cheatsheet] Signature-first API summary for quick generation.
+- [/api/contracts] Full contracts reference from `Nerdigy.Mediator.Abstractions`.
+- [/api/runtime-behavior] Runtime execution and ordering semantics.
+
+## Packages
+
+- `Nerdigy.Mediator.Abstractions`: contracts and delegates only.
+- `Nerdigy.Mediator`: core runtime and dispatch pipeline.
+- `Nerdigy.Mediator.DependencyInjection`: DI registration and assembly scanning.

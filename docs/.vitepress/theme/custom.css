@@ -1,6 +1,6 @@
 /* ============================================================
    Nerdigy.Mediator — Midnight Blueprint
-   Dark engineering aesthetic. Cyan accent on deep navy.
+   Dark engineering aesthetic. Violet accent on deep navy.
    Precision typography. No fluff.
    ============================================================ */
 
@@ -21,18 +21,18 @@ html {
 /* ── Color System ──────────────────────────────────────────── */
 
 :root {
-  /* Brand — electric cyan */
-  --vp-c-brand-1: #22d3ee;
-  --vp-c-brand-2: #19bdd4;
-  --vp-c-brand-3: #11a7ba;
-  --vp-c-brand-soft: rgba(34, 211, 238, 0.1);
+  /* Brand — violet */
+  --vp-c-brand-1: #a78bfa;
+  --vp-c-brand-2: #8b5cf6;
+  --vp-c-brand-3: #7c3aed;
+  --vp-c-brand-soft: rgba(167, 139, 250, 0.1);
 
   /* Custom tokens */
-  --n-accent: #22d3ee;
-  --n-accent-dim: rgba(34, 211, 238, 0.08);
-  --n-accent-glow: rgba(34, 211, 238, 0.15);
-  --n-accent-muted: #5b8a94;
-  --n-accent-text: #22d3ee;
+  --n-accent: #a78bfa;
+  --n-accent-dim: rgba(167, 139, 250, 0.08);
+  --n-accent-glow: rgba(167, 139, 250, 0.15);
+  --n-accent-muted: #7c6b9e;
+  --n-accent-text: #a78bfa;
 
   /* Surfaces — deep navy-slate */
   --vp-c-bg: #0c1222;
@@ -53,15 +53,15 @@ html {
   --vp-c-default-1: #283348;
   --vp-c-default-2: #1e293b;
   --vp-c-default-3: #182240;
-  --vp-c-default-soft: rgba(34, 211, 238, 0.03);
+  --vp-c-default-soft: rgba(167, 139, 250, 0.03);
 
   /* Code */
   --vp-code-block-bg: #080e1c;
-  --vp-code-bg: rgba(34, 211, 238, 0.06);
+  --vp-code-bg: rgba(167, 139, 250, 0.06);
 
   /* Tips and warnings */
-  --vp-c-tip-1: #22d3ee;
-  --vp-c-tip-soft: rgba(34, 211, 238, 0.06);
+  --vp-c-tip-1: #a78bfa;
+  --vp-c-tip-soft: rgba(167, 139, 250, 0.06);
   --vp-c-warning-1: #fbbf24;
   --vp-c-warning-soft: rgba(251, 191, 36, 0.06);
   --vp-c-danger-1: #f87171;
@@ -75,10 +75,10 @@ html {
   --vp-home-hero-name-color: transparent;
   --vp-home-hero-name-background: linear-gradient(
     135deg,
-    #22d3ee 0%,
-    #67e8f9 40%,
-    #a5f3fc 70%,
-    #22d3ee 100%
+    #a78bfa 0%,
+    #c4b5fd 40%,
+    #ddd6fe 70%,
+    #a78bfa 100%
   );
   --vp-home-hero-image-background-image: none;
   --vp-home-hero-image-filter: none;
@@ -86,20 +86,20 @@ html {
   /* Buttons */
   --vp-button-brand-border: transparent;
   --vp-button-brand-text: #0c1222;
-  --vp-button-brand-bg: #22d3ee;
+  --vp-button-brand-bg: #a78bfa;
   --vp-button-brand-hover-border: transparent;
   --vp-button-brand-hover-text: #0c1222;
-  --vp-button-brand-hover-bg: #19bdd4;
+  --vp-button-brand-hover-bg: #8b5cf6;
   --vp-button-brand-active-border: transparent;
   --vp-button-brand-active-text: #0c1222;
-  --vp-button-brand-active-bg: #11a7ba;
+  --vp-button-brand-active-bg: #7c3aed;
 
   --vp-button-alt-border: #283348;
   --vp-button-alt-text: #e2e8f0;
-  --vp-button-alt-bg: rgba(34, 211, 238, 0.04);
-  --vp-button-alt-hover-border: #22d3ee;
-  --vp-button-alt-hover-text: #22d3ee;
-  --vp-button-alt-hover-bg: rgba(34, 211, 238, 0.08);
+  --vp-button-alt-bg: rgba(167, 139, 250, 0.04);
+  --vp-button-alt-hover-border: #a78bfa;
+  --vp-button-alt-hover-text: #a78bfa;
+  --vp-button-alt-hover-bg: rgba(167, 139, 250, 0.08);
 }
 
 /* Duplicate for .dark since VitePress applies .dark class */
@@ -116,9 +116,9 @@ html {
   --vp-c-default-1: #283348;
   --vp-c-default-2: #1e293b;
   --vp-c-default-3: #182240;
-  --vp-c-default-soft: rgba(34, 211, 238, 0.03);
+  --vp-c-default-soft: rgba(167, 139, 250, 0.03);
   --vp-code-block-bg: #080e1c;
-  --vp-code-bg: rgba(34, 211, 238, 0.06);
+  --vp-code-bg: rgba(167, 139, 250, 0.06);
 }
 
 /* ── Global ────────────────────────────────────────────────── */
@@ -184,7 +184,7 @@ body {
 }
 
 .vp-doc a:hover {
-  color: #67e8f9;
+  color: #c4b5fd;
 }
 
 /* ── Code Blocks ───────────────────────────────────────────── */
@@ -205,7 +205,7 @@ body {
   left: 16px;
   right: 16px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.25) 30%, rgba(34, 211, 238, 0.25) 70%, transparent);
+  background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.25) 30%, rgba(167, 139, 250, 0.25) 70%, transparent);
   z-index: 2;
 }
 
@@ -233,18 +233,18 @@ body {
 }
 
 .vp-doc div[class*='language-'] > button.copy:hover {
-  border-color: rgba(34, 211, 238, 0.3);
+  border-color: rgba(167, 139, 250, 0.3);
   background-color: #182240;
 }
 
 .vp-doc div[class*='language-'] > button.copy.copied {
-  border-color: rgba(34, 211, 238, 0.4);
+  border-color: rgba(167, 139, 250, 0.4);
 }
 
 /* Line highlight */
 .vp-doc div[class*='language-'] .has-highlighted-lines .line.highlighted {
-  background: rgba(34, 211, 238, 0.06);
-  border-left: 2px solid rgba(34, 211, 238, 0.5);
+  background: rgba(167, 139, 250, 0.06);
+  border-left: 2px solid rgba(167, 139, 250, 0.5);
   margin-left: -2px;
 }
 
@@ -253,9 +253,9 @@ body {
   font-size: 0.84em;
   border-radius: 3px;
   padding: 2px 6px;
-  background: rgba(34, 211, 238, 0.06);
+  background: rgba(167, 139, 250, 0.06);
   border: 1px solid #1e293b;
-  color: #67e8f9;
+  color: #c4b5fd;
 }
 
 /* ── Navbar ────────────────────────────────────────────────── */
@@ -339,7 +339,7 @@ body {
   width: 2px;
   background: var(--n-accent);
   border-radius: 0 1px 1px 0;
-  box-shadow: 0 0 6px rgba(34, 211, 238, 0.4);
+  box-shadow: 0 0 6px rgba(167, 139, 250, 0.4);
 }
 
 /* ── Hero Section ──────────────────────────────────────────── */
@@ -355,8 +355,8 @@ body {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(34, 211, 238, 0.015) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(34, 211, 238, 0.015) 1px, transparent 1px);
+    linear-gradient(rgba(167, 139, 250, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(167, 139, 250, 0.015) 1px, transparent 1px);
   background-size: 48px 48px;
   pointer-events: none;
   mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 70%);
@@ -383,7 +383,7 @@ body {
   height: 400px;
   background: radial-gradient(
     ellipse,
-    rgba(34, 211, 238, 0.06) 0%,
+    rgba(167, 139, 250, 0.06) 0%,
     transparent 70%
   );
   pointer-events: none;
@@ -438,11 +438,11 @@ body {
 
 .VPHero .actions .VPButton.brand {
   font-weight: 700;
-  box-shadow: 0 0 20px rgba(34, 211, 238, 0.15);
+  box-shadow: 0 0 20px rgba(167, 139, 250, 0.15);
 }
 
 .VPHero .actions .VPButton.brand:hover {
-  box-shadow: 0 0 30px rgba(34, 211, 238, 0.25);
+  box-shadow: 0 0 30px rgba(167, 139, 250, 0.25);
 }
 
 /* ── Feature Cards ─────────────────────────────────────────── */
@@ -463,7 +463,7 @@ body {
     90deg,
     transparent,
     #1e293b 20%,
-    rgba(34, 211, 238, 0.15) 50%,
+    rgba(167, 139, 250, 0.15) 50%,
     #1e293b 80%,
     transparent
   );
@@ -479,7 +479,7 @@ body {
 }
 
 .VPFeatures .VPFeature:hover {
-  border-color: rgba(34, 211, 238, 0.3) !important;
+  border-color: rgba(167, 139, 250, 0.3) !important;
   background: rgba(20, 28, 50, 0.8);
 }
 
@@ -505,7 +505,7 @@ body {
 
 .vp-doc .custom-block.tip {
   border-color: var(--n-accent);
-  background: rgba(34, 211, 238, 0.04);
+  background: rgba(167, 139, 250, 0.04);
 }
 
 .vp-doc .custom-block.tip .custom-block-title {
@@ -537,7 +537,7 @@ body {
 
 .vp-doc .custom-block.info {
   border-color: var(--n-accent-muted);
-  background: rgba(34, 211, 238, 0.02);
+  background: rgba(167, 139, 250, 0.02);
 }
 
 /* ── Tables ────────────────────────────────────────────────── */
@@ -583,7 +583,7 @@ body {
 }
 
 .VPDocFooter .pager .pager-link:hover {
-  border-color: rgba(34, 211, 238, 0.3);
+  border-color: rgba(167, 139, 250, 0.3);
 }
 
 .VPDocFooter .pager .title {
@@ -623,7 +623,7 @@ body {
 /* ── Selection ─────────────────────────────────────────────── */
 
 ::selection {
-  background: rgba(34, 211, 238, 0.2);
+  background: rgba(167, 139, 250, 0.2);
   color: inherit;
 }
 

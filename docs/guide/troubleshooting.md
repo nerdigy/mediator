@@ -2,6 +2,20 @@
 
 This page covers the most common issues you will encounter when using Nerdigy.Mediator, organized by symptom. Each section includes the error message you will see, the root cause, and how to fix it.
 
+## LLM Failure Map
+
+Use this condensed map when an assistant needs quick diagnosis:
+
+| Symptom | Likely Cause | Fast Fix |
+|---|---|---|
+| `No assemblies were configured for mediator scanning` | `AddMediator` called without assembly registration | Add `options.RegisterServicesFromAssemblyContaining<...>()` |
+| `No request handler is registered` | Handler class not scanned, wrong interface, or mismatched generic arguments | Verify interface type parameters and scanned assembly |
+| Notification `Publish` does nothing | No `INotificationHandler<T>` registered for type | Add handler and ensure assembly is scanned |
+| Behavior does not run | Behavior generic arguments do not match request type | Use exact request/response types or open generic behavior |
+| Handler never runs | Behavior skipped `await next()` | Call `next()` unless intentionally short-circuiting |
+| Exception handler runs but exception still thrown | `state.SetHandled(...)` not called | Set handled state with fallback response |
+| Stream abruptly stops on exception | No stream exception handler for thrown type | Add `IStreamRequestExceptionHandler<TRequest,TResponse,TException>` |
+
 ## Registration Errors
 
 ### No assemblies configured for scanning
