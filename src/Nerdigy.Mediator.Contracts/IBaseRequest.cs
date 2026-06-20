@@ -1,4 +1,4 @@
-namespace Nerdigy.Mediator.Abstractions;
+namespace Nerdigy.Mediator.Contracts;
 
 /// <summary>
 /// Represents a base marker interface for mediator requests.

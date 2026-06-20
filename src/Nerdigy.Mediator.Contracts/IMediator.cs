@@ -1,4 +1,4 @@
-namespace Nerdigy.Mediator.Abstractions;
+namespace Nerdigy.Mediator.Contracts;
 
 /// <summary>
 /// Combines request sending and notification publishing capabilities.

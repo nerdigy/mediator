@@ -4,7 +4,7 @@ This file is optimized for machine ingestion. It summarizes package boundaries, 
 
 ## Package Boundaries
 
-- `Nerdigy.Mediator.Abstractions`
+- `Nerdigy.Mediator.Contracts`
   - Public contracts and delegates only.
   - Use in shared libraries that define requests/notifications/handlers but do not host runtime dispatch.
 - `Nerdigy.Mediator`
@@ -12,7 +12,7 @@ This file is optimized for machine ingestion. It summarizes package boundaries, 
   - Pipeline execution and exception processing.
 - `Nerdigy.Mediator.DependencyInjection`
   - DI registration and assembly scanning.
-  - Includes runtime and abstractions transitively.
+  - Includes runtime and contracts transitively.
 
 ## Install
 

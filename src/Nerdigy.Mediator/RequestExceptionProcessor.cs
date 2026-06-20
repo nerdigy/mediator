@@ -4,7 +4,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 
-using Nerdigy.Mediator.Abstractions;
+using Nerdigy.Mediator.Contracts;
 
 namespace Nerdigy.Mediator;
 

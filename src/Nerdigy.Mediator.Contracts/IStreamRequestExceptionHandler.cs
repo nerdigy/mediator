@@ -1,4 +1,4 @@
-namespace Nerdigy.Mediator.Abstractions;
+namespace Nerdigy.Mediator.Contracts;
 
 /// <summary>
 /// Defines exception handling behavior for stream request processing.

@@ -1,4 +1,4 @@
-namespace Nerdigy.Mediator.Abstractions;
+namespace Nerdigy.Mediator.Contracts;
 
 /// <summary>
 /// Represents a request that streams response payloads asynchronously.

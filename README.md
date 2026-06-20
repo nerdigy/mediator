@@ -4,8 +4,8 @@
 
 ## Packages In This Repository
 
-- `Nerdigy.Mediator.Abstractions`: public contracts and delegate types
 - `Nerdigy.Mediator`: core mediator runtime, dispatch, pipelines, and publishers
+- `Nerdigy.Mediator.Contracts`: public contracts and delegate types
 - `Nerdigy.Mediator.DependencyInjection`: DI registration, assembly scanning, and options
 
 All projects currently target `net10.0`.
@@ -14,7 +14,7 @@ All projects currently target `net10.0`.
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
-using Nerdigy.Mediator.Abstractions;
+using Nerdigy.Mediator.Contracts;
 using Nerdigy.Mediator.DependencyInjection;
 
 var services = new ServiceCollection();
@@ -43,7 +43,7 @@ public sealed class PingHandler : IRequestHandler<PingQuery, string>
 
 ## Repository Layout
 
-- `src/Nerdigy.Mediator.Abstractions`
+- `src/Nerdigy.Mediator.Contracts`
 - `src/Nerdigy.Mediator`
 - `src/Nerdigy.Mediator.DependencyInjection`
 - `test/Nerdigy.Mediator.UnitTests`

@@ -1,4 +1,4 @@
-namespace Nerdigy.Mediator.Abstractions;
+namespace Nerdigy.Mediator.Contracts;
 
 /// <summary>
 /// Represents the next delegate in a request pipeline.

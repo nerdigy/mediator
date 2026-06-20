@@ -10,11 +10,11 @@ Use this block as the first message to your LLM before asking for code:
 You are implementing mediator-based application code using Nerdigy.Mediator on .NET 10.
 
 Use these packages:
-- Nerdigy.Mediator.Abstractions (contracts)
+- Nerdigy.Mediator.Contracts (contracts)
 - Nerdigy.Mediator.DependencyInjection (DI registration and scanning)
 
 Use these namespaces:
-- Nerdigy.Mediator.Abstractions
+- Nerdigy.Mediator.Contracts
 - Nerdigy.Mediator.DependencyInjection
 
 Rules:

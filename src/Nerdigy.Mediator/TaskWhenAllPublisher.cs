@@ -1,4 +1,4 @@
-using Nerdigy.Mediator.Abstractions;
+using Nerdigy.Mediator.Contracts;
 
 namespace Nerdigy.Mediator;
 

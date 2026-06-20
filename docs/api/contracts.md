@@ -1,9 +1,9 @@
 # Contracts Reference
 
-All public contracts live in the `Nerdigy.Mediator.Abstractions` package. Install it alone when you only need to define messages and handlers in a class library that should not reference the runtime.
+All public contracts live in the `Nerdigy.Mediator.Contracts` package. Install it alone when you only need to define messages and handlers in a class library that should not reference the runtime.
 
 ```bash
-dotnet add package Nerdigy.Mediator.Abstractions
+dotnet add package Nerdigy.Mediator.Contracts
 ```
 
 ---

@@ -7,7 +7,7 @@ Requests are the primary dispatch mechanism in Nerdigy.Mediator. Each request ro
 A request is any type that implements `IRequest<TResponse>`. C# records work well here because requests are typically immutable data carriers.
 
 ```csharp
-using Nerdigy.Mediator.Abstractions;
+using Nerdigy.Mediator.Contracts;
 
 public sealed record GetUserQuery(Guid Id) : IRequest<UserDto>;
 ```

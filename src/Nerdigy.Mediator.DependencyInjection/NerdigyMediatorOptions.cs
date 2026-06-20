@@ -3,7 +3,7 @@ using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 
 using Nerdigy.Mediator;
-using Nerdigy.Mediator.Abstractions;
+using Nerdigy.Mediator.Contracts;
 
 namespace Nerdigy.Mediator.DependencyInjection;
 

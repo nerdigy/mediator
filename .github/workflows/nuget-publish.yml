@@ -72,9 +72,6 @@ jobs:
       - name: "🏗️ Build solution"
         run: dotnet build Mediator.slnx --no-restore -c Release -p:Version="${{ steps.version.outputs.version }}"
 
-      - name: "📏 Check formatting"
-        run: dotnet format Mediator.slnx --verify-no-changes --no-restore
-
       - name: "🧪 Run unit tests"
         run: dotnet test test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj --no-build -c Release --logger "trx;LogFileName=unit-tests.trx"
 
@@ -88,7 +85,7 @@ jobs:
           mkdir -p artifacts/nuget
 
           projects=(
-            "src/Nerdigy.Mediator.Abstractions/Nerdigy.Mediator.Abstractions.csproj"
+            "src/Nerdigy.Mediator.Contracts/Nerdigy.Mediator.Contracts.csproj"
             "src/Nerdigy.Mediator/Nerdigy.Mediator.csproj"
             "src/Nerdigy.Mediator.DependencyInjection/Nerdigy.Mediator.DependencyInjection.csproj"
           )

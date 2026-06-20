@@ -25,7 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Nerdigy.Mediator\Nerdigy.Mediator.csproj" />
-    <ProjectReference Include="..\Nerdigy.Mediator.Abstractions\Nerdigy.Mediator.Abstractions.csproj" />
+    <ProjectReference Include="..\Nerdigy.Mediator.Contracts\Nerdigy.Mediator.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

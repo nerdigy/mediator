@@ -16,11 +16,11 @@
 - [/guide/exception-handling] Exception handlers/actions and recovery semantics.
 - [/guide/troubleshooting] Symptom to fix mapping for common failures.
 - [/api/cheatsheet] Signature-first API summary for quick generation.
-- [/api/contracts] Full contracts reference from `Nerdigy.Mediator.Abstractions`.
+- [/api/contracts] Full contracts reference from `Nerdigy.Mediator.Contracts`.
 - [/api/runtime-behavior] Runtime execution and ordering semantics.
 
 ## Packages
 
-- `Nerdigy.Mediator.Abstractions`: contracts and delegates only.
+- `Nerdigy.Mediator.Contracts`: contracts and delegates only.
 - `Nerdigy.Mediator`: core runtime and dispatch pipeline.
 - `Nerdigy.Mediator.DependencyInjection`: DI registration and assembly scanning.

@@ -70,11 +70,11 @@ string response = await mediator.Send(new Ping("hello"));
 
 ## Three Packages, Clear Boundaries
 
-| Package | Purpose |
-|---|---|
-| **Nerdigy.Mediator.Abstractions** | Contracts only. `IMediator`, `ISender`, `IPublisher`, request/notification/stream interfaces, handler interfaces, pipeline and exception interfaces. |
-| **Nerdigy.Mediator** | Runtime. Dispatchers with expression-compiled caching, pipeline executors, exception processors, notification publishers. No DI framework dependency. |
-| **Nerdigy.Mediator.DependencyInjection** | Registration. `AddMediator(...)`, assembly scanning, configurable service lifetimes, publisher strategy selection. |
+| Package                                  | Purpose                                                                                                                                               |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Nerdigy.Mediator.Contracts**           | Contracts only. `IMediator`, `ISender`, `IPublisher`, request/notification/stream interfaces, handler interfaces, pipeline and exception interfaces.  |
+| **Nerdigy.Mediator**                     | Runtime. Dispatchers with expression-compiled caching, pipeline executors, exception processors, notification publishers. No DI framework dependency. |
+| **Nerdigy.Mediator.DependencyInjection** | Registration. `AddMediator(...)`, assembly scanning, configurable service lifetimes, publisher strategy selection.                                    |
 
 ## Next Steps
 
@@ -84,4 +84,4 @@ string response = await mediator.Send(new Ping("hello"));
 - **[Getting Started](/guide/getting-started)** -- Install packages, write your first handler, and dispatch a request in under five minutes.
 - **[Requests](/guide/requests)** -- Request/response patterns, void requests, and handler conventions.
 - **[Pipelines](/guide/pipelines)** -- Pre-processors, behaviors, post-processors, and execution order.
-- **[API Contracts](/api/contracts)** -- Complete interface reference for every public type in the Abstractions package.
+- **[API Contracts](/api/contracts)** -- Complete interface reference for every public type in the Contracts package.

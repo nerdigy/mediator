@@ -6,7 +6,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>true</IsPackable>
-    <PackageId>Nerdigy.Mediator.Abstractions</PackageId>
+    <PackageId>Nerdigy.Mediator.Contracts</PackageId>
     <Version>0.1.0</Version>
     <Authors>Nerdigy</Authors>
     <Company>Nerdigy</Company>

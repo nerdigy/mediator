@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-using Nerdigy.Mediator.Abstractions;
+using Nerdigy.Mediator.Contracts;
 
 using MediatorRuntime = Nerdigy.Mediator.Mediator;
 

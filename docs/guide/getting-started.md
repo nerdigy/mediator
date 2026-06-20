@@ -4,7 +4,7 @@ Nerdigy.Mediator gives you strongly-typed request/response dispatch, notificatio
 
 ## Installation
 
-Install the DI package. It pulls in the core runtime and abstractions transitively.
+Install the DI package. It pulls in the core runtime and contracts transitively.
 
 ```bash
 dotnet add package Nerdigy.Mediator.DependencyInjection
@@ -12,14 +12,14 @@ dotnet add package Nerdigy.Mediator.DependencyInjection
 
 This gives you all three packages:
 
-| Package | Purpose |
-|---|---|
-| `Nerdigy.Mediator.Abstractions` | Contracts: `IMediator`, `IRequest<T>`, `INotification`, handler interfaces |
-| `Nerdigy.Mediator` | Runtime: dispatch, pipeline execution, notification publishers |
-| `Nerdigy.Mediator.DependencyInjection` | DI registration via `services.AddMediator(...)` |
+| Package                                | Purpose                                                                    |
+| -------------------------------------- | -------------------------------------------------------------------------- |
+| `Nerdigy.Mediator.Contracts`           | Contracts: `IMediator`, `IRequest<T>`, `INotification`, handler interfaces |
+| `Nerdigy.Mediator`                     | Runtime: dispatch, pipeline execution, notification publishers             |
+| `Nerdigy.Mediator.DependencyInjection` | DI registration via `services.AddMediator(...)`                            |
 
 ::: tip Only need contracts?
-If you are defining requests and handlers in a library that should not depend on the runtime, reference `Nerdigy.Mediator.Abstractions` directly.
+If you are defining requests and handlers in a library that should not depend on the runtime, reference `Nerdigy.Mediator.Contracts` directly.
 :::
 
 ## Register the Mediator
@@ -46,7 +46,7 @@ A request is a plain class or record that implements `IRequest<TResponse>`. A ha
 ### Define the request and handler
 
 ```csharp
-using Nerdigy.Mediator.Abstractions;
+using Nerdigy.Mediator.Contracts;
 
 public sealed record GetWeatherQuery(string City) : IRequest<WeatherForecast>;
 
@@ -109,7 +109,7 @@ Notifications deliver a message to zero or more handlers. A notification impleme
 ### Define the notification and handlers
 
 ```csharp
-using Nerdigy.Mediator.Abstractions;
+using Nerdigy.Mediator.Contracts;
 
 public sealed record CityDeleted(string City) : INotification;
 
@@ -150,7 +150,7 @@ Here is a complete, self-contained program that sends a request and publishes a 
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
-using Nerdigy.Mediator.Abstractions;
+using Nerdigy.Mediator.Contracts;
 using Nerdigy.Mediator.DependencyInjection;
 
 ServiceCollection services = new();

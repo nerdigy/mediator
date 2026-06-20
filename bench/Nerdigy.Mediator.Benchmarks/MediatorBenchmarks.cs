@@ -4,7 +4,7 @@ using BenchmarkDotNet.Attributes;
 
 using Microsoft.Extensions.DependencyInjection;
 
-using Nerdigy.Mediator.Abstractions;
+using Nerdigy.Mediator.Contracts;
 using Nerdigy.Mediator.DependencyInjection;
 
 namespace Nerdigy.Mediator.Benchmarks;
