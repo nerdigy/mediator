@@ -166,17 +166,18 @@ When any stage of request or stream pipeline execution throws, the runtime appli
 
 ### Phase 1 -- Exception Handlers
 
-The runtime walks the exception type hierarchy from **most specific to least specific**. For a thrown `HttpRequestException`, it checks handlers registered for `HttpRequestException`, then `IOException`, then `Exception`, and so on up the inheritance chain.
+The runtime walks the exception type hierarchy from **most specific to least specific** by following each type's `BaseType`. For a thrown `FileNotFoundException`, it checks handlers registered for `FileNotFoundException`, then `IOException`, then `SystemException`, then `Exception`. Only types in the thrown exception's actual inheritance chain are checked: `HttpRequestException` derives directly from `Exception`, so an `IOException` handler never sees it.
 
 For each exception type in the hierarchy, it resolves all registered `IRequestExceptionHandler<TRequest, TResponse, TException>` instances (or `IStreamRequestExceptionHandler<TRequest, TResponse, TException>` for streams) and invokes them in sequence.
 
 The first handler to call `state.SetHandled(response)` wins. The runtime returns the recovery response immediately and skips all remaining handlers and actions.
 
 ```csharp
-// Exception handler resolution order for HttpRequestException:
-// 1. IRequestExceptionHandler<TRequest, TResponse, HttpRequestException>
+// Exception handler resolution order for FileNotFoundException:
+// 1. IRequestExceptionHandler<TRequest, TResponse, FileNotFoundException>
 // 2. IRequestExceptionHandler<TRequest, TResponse, IOException>
-// 3. IRequestExceptionHandler<TRequest, TResponse, Exception>
+// 3. IRequestExceptionHandler<TRequest, TResponse, SystemException>
+// 4. IRequestExceptionHandler<TRequest, TResponse, Exception>
 ```
 
 ### Phase 2 -- Exception Actions

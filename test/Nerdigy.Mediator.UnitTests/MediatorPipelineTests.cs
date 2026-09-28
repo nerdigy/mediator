@@ -133,6 +133,38 @@ public sealed class MediatorPipelineTests
     }
 
     /// <summary>
+    /// Verifies exception handlers and actions follow the thrown exception's actual inheritance chain, most specific first.
+    /// </summary>
+    /// <param name="exceptionType">The exception type thrown by the request handler.</param>
+    /// <param name="expectedChain">The exception type names expected to be visited, most specific first.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(typeof(FileNotFoundException), new[] { "FileNotFoundException", "IOException", "SystemException", "Exception" })]
+    [InlineData(typeof(HttpRequestException), new[] { "HttpRequestException", "Exception" })]
+    public async Task Send_WhenExceptionIsUnhandled_WalksActualExceptionTypeHierarchy(Type exceptionType, string[] expectedChain)
+    {
+        List<string> events = [];
+        var exception = (Exception)Activator.CreateInstance(exceptionType)!;
+        (Type, object?)[] registrations =
+        [
+            (typeof(IRequestHandler<PipelineRequest, string>), new ExceptionThrowingRequestHandler(exception)),
+            .. HierarchyRecordingRegistrations<FileNotFoundException>(events),
+            .. HierarchyRecordingRegistrations<IOException>(events),
+            .. HierarchyRecordingRegistrations<SystemException>(events),
+            .. HierarchyRecordingRegistrations<HttpRequestException>(events),
+            .. HierarchyRecordingRegistrations<Exception>(events)
+        ];
+        var mediator = new MediatorRuntime(new TestServiceProvider(registrations));
+
+        var thrown = await Assert.ThrowsAsync(exceptionType, () => mediator.Send(new PipelineRequest("start"), CancellationToken.None));
+
+        Assert.Same(exception, thrown);
+        Assert.Equal(
+            [.. expectedChain.Select(name => $"handler:{name}"), .. expectedChain.Select(name => $"action:{name}")],
+            events);
+    }
+
+    /// <summary>
     /// Verifies void requests also execute pipeline behaviors and preprocessors.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
@@ -446,6 +478,127 @@ public sealed class MediatorPipelineTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             WasCalled = true;
+
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Creates non-handling exception handler and action registrations that record when they run.
+    /// </summary>
+    /// <typeparam name="TException">The exception type the handler and action are registered for.</typeparam>
+    /// <param name="events">The event sink used by tests.</param>
+    /// <returns>The service registrations for the handler and action.</returns>
+    private static (Type, object?)[] HierarchyRecordingRegistrations<TException>(List<string> events)
+        where TException : Exception
+    {
+        return
+        [
+            (typeof(IEnumerable<IRequestExceptionHandler<PipelineRequest, string, TException>>), new IRequestExceptionHandler<PipelineRequest, string, TException>[] { new HierarchyRecordingExceptionHandler<TException>(events) }),
+            (typeof(IEnumerable<IRequestExceptionAction<PipelineRequest, TException>>), new IRequestExceptionAction<PipelineRequest, TException>[] { new HierarchyRecordingExceptionAction<TException>(events) })
+        ];
+    }
+
+    /// <summary>
+    /// Throws a supplied exception for every request.
+    /// </summary>
+    private sealed class ExceptionThrowingRequestHandler : IRequestHandler<PipelineRequest, string>
+    {
+        private readonly Exception _exception;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ExceptionThrowingRequestHandler"/> class.
+        /// </summary>
+        /// <param name="exception">The exception to throw.</param>
+        public ExceptionThrowingRequestHandler(Exception exception)
+        {
+            ArgumentNullException.ThrowIfNull(exception);
+            _exception = exception;
+        }
+
+        /// <summary>
+        /// Throws the supplied exception.
+        /// </summary>
+        /// <param name="request">The request to handle.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>A task that never completes successfully.</returns>
+        public Task<string> Handle(PipelineRequest request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw _exception;
+        }
+    }
+
+    /// <summary>
+    /// Records exception handler execution without marking the exception as handled.
+    /// </summary>
+    /// <typeparam name="TException">The exception type this handler is registered for.</typeparam>
+    private sealed class HierarchyRecordingExceptionHandler<TException> : IRequestExceptionHandler<PipelineRequest, string, TException>
+        where TException : Exception
+    {
+        private readonly List<string> _events;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="HierarchyRecordingExceptionHandler{TException}"/> class.
+        /// </summary>
+        /// <param name="events">The event sink used by tests.</param>
+        public HierarchyRecordingExceptionHandler(List<string> events)
+        {
+            ArgumentNullException.ThrowIfNull(events);
+            _events = events;
+        }
+
+        /// <summary>
+        /// Records the handled exception type.
+        /// </summary>
+        /// <param name="request">The request being processed.</param>
+        /// <param name="exception">The thrown exception.</param>
+        /// <param name="state">The mutable handler state.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>A completed task.</returns>
+        public Task Handle(
+            PipelineRequest request,
+            TException exception,
+            RequestExceptionHandlerState<string> state,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _events.Add($"handler:{typeof(TException).Name}");
+
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Records exception action execution.
+    /// </summary>
+    /// <typeparam name="TException">The exception type this action is registered for.</typeparam>
+    private sealed class HierarchyRecordingExceptionAction<TException> : IRequestExceptionAction<PipelineRequest, TException>
+        where TException : Exception
+    {
+        private readonly List<string> _events;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="HierarchyRecordingExceptionAction{TException}"/> class.
+        /// </summary>
+        /// <param name="events">The event sink used by tests.</param>
+        public HierarchyRecordingExceptionAction(List<string> events)
+        {
+            ArgumentNullException.ThrowIfNull(events);
+            _events = events;
+        }
+
+        /// <summary>
+        /// Records the observed exception type.
+        /// </summary>
+        /// <param name="request">The request being processed.</param>
+        /// <param name="exception">The thrown exception.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>A completed task.</returns>
+        public Task Execute(PipelineRequest request, TException exception, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _events.Add($"action:{typeof(TException).Name}");
 
             return Task.CompletedTask;
         }
