@@ -93,6 +93,44 @@ public sealed class IntegrationRequestHandler : IRequestHandler<IntegrationReque
 }
 
 /// <summary>
+/// Represents a void-style command for integration tests.
+/// </summary>
+/// <param name="Value">The command payload.</param>
+public sealed record IntegrationVoidCommand(string Value) : IRequest;
+
+/// <summary>
+/// Handles <see cref="IntegrationVoidCommand"/> requests.
+/// </summary>
+public sealed class IntegrationVoidCommandHandler : IRequestHandler<IntegrationVoidCommand>
+{
+    private readonly IntegrationTracker _tracker;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="IntegrationVoidCommandHandler"/> class.
+    /// </summary>
+    /// <param name="tracker">The shared test tracker.</param>
+    public IntegrationVoidCommandHandler(IntegrationTracker tracker)
+    {
+        ArgumentNullException.ThrowIfNull(tracker);
+        _tracker = tracker;
+    }
+
+    /// <summary>
+    /// Handles the command.
+    /// </summary>
+    /// <param name="request">The command to handle.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A completed task.</returns>
+    public Task Handle(IntegrationVoidCommand request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _tracker.Record($"void-handler:{request.Value}");
+
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>
 /// Executes before <see cref="IntegrationRequestHandler"/>.
 /// </summary>
 public sealed class IntegrationRequestPreProcessor : IRequestPreProcessor<IntegrationRequest>
