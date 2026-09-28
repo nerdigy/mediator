@@ -41,16 +41,21 @@ internal static class RequestPipelineDispatcher<TResponse>
     /// <returns>A compiled dispatch delegate.</returns>
     private static RequestPipelineDispatchDelegate BuildDispatcher(Type requestType)
     {
+        var declaredResponseType = DeclaredResponseResolver.Resolve(requestType, typeof(IRequest<>), typeof(TResponse));
+        var isCovariantView = declaredResponseType != typeof(TResponse);
+        var dispatchMethodName = isCovariantView ? nameof(DispatchCovariant) : nameof(DispatchTyped);
         var dispatchMethod = typeof(RequestPipelineDispatcher<TResponse>)
-            .GetMethod(nameof(DispatchTyped), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            .GetMethod(dispatchMethodName, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
 
         if (dispatchMethod is null)
         {
             throw new InvalidOperationException(
-                MediatorDiagnostics.MissingDispatchMethod(typeof(RequestPipelineDispatcher<TResponse>), nameof(DispatchTyped)));
+                MediatorDiagnostics.MissingDispatchMethod(typeof(RequestPipelineDispatcher<TResponse>), dispatchMethodName));
         }
 
-        var closedDispatchMethod = dispatchMethod.MakeGenericMethod(requestType);
+        var closedDispatchMethod = isCovariantView
+            ? dispatchMethod.MakeGenericMethod(requestType, declaredResponseType)
+            : dispatchMethod.MakeGenericMethod(requestType);
         var serviceProviderParameter = Expression.Parameter(typeof(IServiceProvider), "serviceProvider");
         var requestParameter = Expression.Parameter(typeof(IRequest<TResponse>), "request");
         var cancellationTokenParameter = Expression.Parameter(typeof(CancellationToken), "cancellationToken");
@@ -84,6 +89,32 @@ internal static class RequestPipelineDispatcher<TResponse>
             typedRequest,
             cancellationToken,
             () => RequestDispatcher<TResponse>.Dispatch(serviceProvider, typedRequest, cancellationToken));
+    }
+
+    /// <summary>
+    /// Dispatches a request sent through a covariant view of its declared response type.
+    /// </summary>
+    /// <remarks>
+    /// The request runs through the pipeline and handler registered for its declared response type, and the response
+    /// is returned as <typeparamref name="TResponse"/>.
+    /// </remarks>
+    /// <typeparam name="TRequest">The concrete request type.</typeparam>
+    /// <typeparam name="TDeclaredResponse">The response type declared by the request.</typeparam>
+    /// <param name="serviceProvider">The service provider used to resolve pipeline services.</param>
+    /// <param name="request">The request to dispatch.</param>
+    /// <param name="cancellationToken">A cancellation token that can be observed while dispatching.</param>
+    /// <returns>A task that resolves to the response payload.</returns>
+    private static async Task<TResponse> DispatchCovariant<TRequest, TDeclaredResponse>(
+        IServiceProvider serviceProvider,
+        IRequest<TResponse> request,
+        CancellationToken cancellationToken)
+        where TRequest : IRequest<TDeclaredResponse>
+        where TDeclaredResponse : TResponse
+    {
+        return await RequestPipelineDispatcher<TDeclaredResponse>.DispatchTyped<TRequest>(
+            serviceProvider,
+            (TRequest)request,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

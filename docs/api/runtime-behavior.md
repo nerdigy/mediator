@@ -111,6 +111,19 @@ At both points, the runtime follows the same [exception processing flow](#except
 
 If an exception occurs mid-enumeration and a handler provides a replacement stream, the runtime disposes the faulted enumerator and switches to the new stream seamlessly.
 
+## Covariant Response Views
+
+`IRequest<out TResponse>` and `IStreamRequest<out TResponse>` are covariant, so a request that declares `IRequest<string>` can be passed where an `IRequest<object>` is expected. When the `TResponse` at the call site is not a response type the request declares, the pipeline dispatcher finds the declared response type that the caller's view is covariant with and dispatches through it:
+
+```csharp
+IRequest<object> query = new GetUserNameQuery(42); // declares IRequest<string>
+object name = await mediator.Send(query);           // runs IRequestHandler<GetUserNameQuery, string>
+```
+
+The request runs through the handler, behaviors, processors, and exception handlers registered for the declared response type (`string` above), and the result is returned as the caller's type. The same applies to `CreateStream`, where each item is returned as the caller's type. Derived-to-base views, such as sending a request that declares `IRequest<Dog>` as `IRequest<Animal>`, work the same way.
+
+If a request declares more than one response type that the caller's view is covariant with, such as `IRequest<string>` and `IRequest<Uri>` sent as `IRequest<object>`, dispatch throws `InvalidOperationException`. Send it with the exact response type of the handler you want to run.
+
 ## Notification Publishing
 
 `Mediator.Publish<TNotification>()` resolves all registered `INotificationHandler<T>` instances for the notification's concrete runtime type from the DI container and delegates to an `INotificationPublisher` strategy. Publishing through an `INotification`, base-class, or generic reference reaches the same handlers as publishing the concrete type directly. Handlers registered only for the interface or base type are not invoked.
@@ -207,11 +220,11 @@ This applies at two levels per dispatch:
 
 | Cache | Keyed By | Stores |
 |---|---|---|
-| `RequestPipelineDispatcher<TResponse>` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>` |
+| `RequestPipelineDispatcher<TResponse>` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>`, or `DispatchCovariant<TRequest, TDeclaredResponse>` for a [covariant view](#covariant-response-views) |
 | `RequestDispatcher<TResponse>` | Concrete request type | Compiled handler invoker + service resolution |
 | `VoidRequestPipelineDispatcher` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>` |
 | `VoidRequestDispatcher` | Concrete request type | Compiled handler invoker + service resolution |
-| `StreamRequestPipelineDispatcher<TResponse>` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>` |
+| `StreamRequestPipelineDispatcher<TResponse>` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>`, or `DispatchCovariant<TRequest, TDeclaredResponse>` for a [covariant view](#covariant-response-views) |
 | `StreamRequestDispatcher<TResponse>` | Concrete request type | Compiled handler invoker + service resolution |
 
 Exception handler and action invokers are also cached per exception type in `ConcurrentDictionary` instances on `RequestExceptionProcessor` and `StreamRequestExceptionProcessor`.
@@ -241,5 +254,6 @@ The table below maps each public API method to its internal dispatch chain.
 |---|---|---|
 | No handler registered for request type | `InvalidOperationException` | At dispatch time, when the DI container returns `null` for the handler service type |
 | No handler registered for stream request type | `InvalidOperationException` | At dispatch time (same as above) |
+| Request declares more than one response type compatible with the caller's covariant view | `InvalidOperationException` | On the first `Send` or `CreateStream` call for that request type and view |
 | `null` request or notification argument | `ArgumentNullException` | Immediately on `Send`, `CreateStream`, or `Publish` call |
 | `null` service provider | `ArgumentNullException` | At `Mediator` construction |
