@@ -87,7 +87,7 @@ Handler 3 ──────>     ┘
 
 - Handlers are independent and thread-safe
 - Latency matters more than ordering -- total wall-clock time equals the slowest handler, not the sum
-- You accept that all handlers start before any exception surfaces (exceptions are aggregated into an `AggregateException`)
+- You accept that all handlers start before any exception surfaces -- even one thrown synchronously by a non-`async` handler -- and that publishing completes only after every handler finishes (exceptions are aggregated into an `AggregateException`)
 
 ::: tip
 `TaskWhenAllPublisher` includes fast paths: zero handlers return `Task.CompletedTask` immediately, and a single handler runs without allocating a `Task[]` array.

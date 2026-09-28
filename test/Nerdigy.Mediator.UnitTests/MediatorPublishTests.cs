@@ -82,6 +82,87 @@ public sealed class MediatorPublishTests
     }
 
     /// <summary>
+    /// Verifies that a handler throwing synchronously neither skips later handlers nor abandons in-flight handlers.
+    /// </summary>
+    /// <param name="useCollection">Whether handlers are supplied as an <see cref="ICollection{T}"/> or a lazy enumerable.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Publish_WithTaskWhenAllPublisher_WhenHandlerThrowsSynchronously_RunsAllHandlersBeforeFaulting(bool useCollection)
+    {
+        var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thirdStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failure = new InvalidOperationException("sync failure");
+
+        INotificationHandler<UserCreatedNotification>[] handlers =
+        [
+            new BlockingNotificationHandler(firstStarted, firstRelease.Task),
+            new SynchronouslyThrowingNotificationHandler(failure),
+            new TrackingNotificationHandler(thirdStarted)
+        ];
+
+        var publishTask = new TaskWhenAllPublisher().Publish(
+            useCollection ? handlers : EnumerateLazily(handlers),
+            new UserCreatedNotification("theta"),
+            CancellationToken.None);
+
+        Assert.True(firstStarted.Task.IsCompleted);
+        Assert.True(thirdStarted.Task.IsCompleted);
+        Assert.False(publishTask.IsCompleted);
+
+        firstRelease.SetResult(true);
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => publishTask.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.Same(failure, exception);
+    }
+
+    /// <summary>
+    /// Verifies that a handler throwing <see cref="OperationCanceledException"/> synchronously yields a canceled task, matching an async handler.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task Publish_WithTaskWhenAllPublisher_WhenHandlerThrowsCancellationSynchronously_ReturnsCanceledTask()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        var handler = new CountingNotificationHandler<UserCreatedNotification>();
+
+        INotificationHandler<UserCreatedNotification>[] handlers =
+        [
+            new SynchronouslyThrowingNotificationHandler(new OperationCanceledException(cancellation.Token)),
+            handler
+        ];
+
+        var publishTask = new TaskWhenAllPublisher().Publish(
+            handlers,
+            new UserCreatedNotification("iota"),
+            CancellationToken.None);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => publishTask);
+        Assert.True(publishTask.IsCanceled);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    /// <summary>
+    /// Verifies that a single handler's synchronous exception still reaches the caller.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task Publish_WithTaskWhenAllPublisher_WhenSingleHandlerThrowsSynchronously_PropagatesException()
+    {
+        var failure = new InvalidOperationException("sync failure");
+        var mediator = CreateMediator(
+            useParallelPublisher: true,
+            RegisterHandlers<UserCreatedNotification>(new SynchronouslyThrowingNotificationHandler(failure)));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => mediator.Publish(new UserCreatedNotification("kappa"), CancellationToken.None));
+        Assert.Same(failure, exception);
+    }
+
+    /// <summary>
     /// Verifies that publishing a null notification throws.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
@@ -217,6 +298,20 @@ public sealed class MediatorPublishTests
     }
 
     /// <summary>
+    /// Yields items through an iterator so consumers cannot treat the sequence as a collection.
+    /// </summary>
+    /// <typeparam name="T">The item type.</typeparam>
+    /// <param name="items">The items to yield.</param>
+    /// <returns>A lazily evaluated sequence.</returns>
+    private static IEnumerable<T> EnumerateLazily<T>(IEnumerable<T> items)
+    {
+        foreach (var item in items)
+        {
+            yield return item;
+        }
+    }
+
+    /// <summary>
     /// Publishes a notification from generic code, mirroring domain-event dispatch helpers.
     /// </summary>
     /// <typeparam name="TNotification">The notification type inferred by the caller.</typeparam>
@@ -319,6 +414,35 @@ public sealed class MediatorPublishTests
             cancellationToken.ThrowIfCancellationRequested();
             _started.TrySetResult(true);
             await _gate.WaitAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Handles a notification by throwing before returning a task, as a non-async handler would.
+    /// </summary>
+    private sealed class SynchronouslyThrowingNotificationHandler : INotificationHandler<UserCreatedNotification>
+    {
+        private readonly Exception _exception;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SynchronouslyThrowingNotificationHandler"/> class.
+        /// </summary>
+        /// <param name="exception">The exception to throw.</param>
+        public SynchronouslyThrowingNotificationHandler(Exception exception)
+        {
+            ArgumentNullException.ThrowIfNull(exception);
+            _exception = exception;
+        }
+
+        /// <summary>
+        /// Handles the notification by throwing synchronously.
+        /// </summary>
+        /// <param name="notification">The notification to handle.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>Never returns.</returns>
+        public Task Handle(UserCreatedNotification notification, CancellationToken cancellationToken)
+        {
+            throw _exception;
         }
     }
 
