@@ -70,6 +70,8 @@ Mediator.Send(IRequest)
 
 This means void requests participate in the same pre-processor, behavior, post-processor, and exception handling pipeline as response-bearing requests.
 
+Because `IRequest` extends `IRequest<Unit>`, a void request can also reach the generic overload, such as when it is held as an `IRequest<Unit>`, sent with `Send<Unit>`, or forwarded by a generic wrapper. `RequestPipelineDispatcher<Unit>` detects requests that implement `IRequest` and dispatches them the same way as `Send(IRequest)`: through the `Unit` pipeline to `IRequestHandler<TRequest>`, returning `Unit.Value`. Requests that implement only `IRequest<Unit>` are ordinary response-bearing requests and still use `IRequestHandler<TRequest, Unit>`.
+
 ## Stream Dispatch Lifecycle
 
 When you call `mediator.CreateStream(request)`, the runtime follows a parallel dispatch chain:
@@ -220,7 +222,7 @@ This applies at two levels per dispatch:
 
 | Cache | Keyed By | Stores |
 |---|---|---|
-| `RequestPipelineDispatcher<TResponse>` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>`, or `DispatchCovariant<TRequest, TDeclaredResponse>` for a [covariant view](#covariant-response-views) |
+| `RequestPipelineDispatcher<TResponse>` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>`, `DispatchCovariant<TRequest, TDeclaredResponse>` for a [covariant view](#covariant-response-views), or the void pipeline for a [void request sent as `IRequest<Unit>`](#void-request-dispatch) |
 | `RequestDispatcher<TResponse>` | Concrete request type | Compiled handler invoker + service resolution |
 | `VoidRequestPipelineDispatcher` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>` |
 | `VoidRequestDispatcher` | Concrete request type | Compiled handler invoker + service resolution |
@@ -245,6 +247,7 @@ The table below maps each public API method to its internal dispatch chain.
 |---|---|---|---|
 | `Send<TResponse>(IRequest<TResponse>)` | `RequestPipelineDispatcher<TResponse>` | `RequestPipelineExecutor<TRequest, TResponse>` | `RequestDispatcher<TResponse>` |
 | `Send(IRequest)` | `VoidRequestPipelineDispatcher` | `RequestPipelineExecutor<TRequest, Unit>` | `VoidRequestDispatcher` |
+| `Send<Unit>(IRequest<Unit>)` with a void request | `RequestPipelineDispatcher<Unit>` --> `VoidRequestPipelineDispatcher` | `RequestPipelineExecutor<TRequest, Unit>` | `VoidRequestDispatcher` |
 | `CreateStream<TResponse>(IStreamRequest<TResponse>)` | `StreamRequestPipelineDispatcher<TResponse>` | `StreamRequestPipelineExecutor<TRequest, TResponse>` | `StreamRequestDispatcher<TResponse>` |
 | `Publish<TNotification>(TNotification)` | -- | -- | `INotificationPublisher` strategy |
 

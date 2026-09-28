@@ -483,6 +483,8 @@ Resolving a scoped dependency from a transient handler can produce subtle lifeti
 
 `IRequest` (the void request marker) extends `IRequest<Unit>` so that the void dispatch path can share pipeline infrastructure with the response path internally. This is an implementation detail. When you implement a void handler, use `IRequestHandler<TRequest>` (single type parameter) -- not `IRequestHandler<TRequest, Unit>`.
 
+A void request always runs its `IRequestHandler<TRequest>`, even when it is sent through the generic overload as an `IRequest<Unit>` or with `Send<Unit>`. An `IRequestHandler<TRequest, Unit>` registered for a type that implements `IRequest` is never used.
+
 ### How do I run logic before every request regardless of type?
 
 Implement an open-generic pre-processor:

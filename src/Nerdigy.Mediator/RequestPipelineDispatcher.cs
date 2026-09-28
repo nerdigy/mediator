@@ -41,6 +41,43 @@ internal static class RequestPipelineDispatcher<TResponse>
     /// <returns>A compiled dispatch delegate.</returns>
     private static RequestPipelineDispatchDelegate BuildDispatcher(Type requestType)
     {
+        var closedDispatchMethod = IsVoidRequest(requestType)
+            ? VoidRequestPipelineDispatcher.GetDispatchMethod(requestType)
+            : GetDispatchMethod(requestType);
+        var serviceProviderParameter = Expression.Parameter(typeof(IServiceProvider), "serviceProvider");
+        var requestParameter = Expression.Parameter(typeof(IRequest<TResponse>), "request");
+        var cancellationTokenParameter = Expression.Parameter(typeof(CancellationToken), "cancellationToken");
+        var dispatchCall = Expression.Call(closedDispatchMethod, serviceProviderParameter, requestParameter, cancellationTokenParameter);
+
+        return Expression.Lambda<RequestPipelineDispatchDelegate>(
+            dispatchCall,
+            serviceProviderParameter,
+            requestParameter,
+            cancellationTokenParameter).Compile();
+    }
+
+    /// <summary>
+    /// Determines whether a request sent for <typeparamref name="TResponse"/> is a void-style request.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="IRequest"/> extends <c>IRequest&lt;Unit&gt;</c>, so a void-style request can reach this dispatcher through
+    /// <c>Send&lt;Unit&gt;</c>. Its handler is registered as <c>IRequestHandler&lt;TRequest&gt;</c>, so it must be dispatched
+    /// the same way as the non-generic <c>Send</c> overload.
+    /// </remarks>
+    /// <param name="requestType">The concrete request runtime type.</param>
+    /// <returns><see langword="true"/> when the request must be dispatched to its void handler; otherwise <see langword="false"/>.</returns>
+    private static bool IsVoidRequest(Type requestType)
+    {
+        return typeof(TResponse) == typeof(Unit) && typeof(IRequest).IsAssignableFrom(requestType);
+    }
+
+    /// <summary>
+    /// Gets the dispatch method closed over a concrete request type and the response type it is dispatched with.
+    /// </summary>
+    /// <param name="requestType">The concrete request runtime type.</param>
+    /// <returns>The closed dispatch method.</returns>
+    private static System.Reflection.MethodInfo GetDispatchMethod(Type requestType)
+    {
         var declaredResponseType = DeclaredResponseResolver.Resolve(requestType, typeof(IRequest<>), typeof(TResponse));
         var isCovariantView = declaredResponseType != typeof(TResponse);
         var dispatchMethodName = isCovariantView ? nameof(DispatchCovariant) : nameof(DispatchTyped);
@@ -53,19 +90,9 @@ internal static class RequestPipelineDispatcher<TResponse>
                 MediatorDiagnostics.MissingDispatchMethod(typeof(RequestPipelineDispatcher<TResponse>), dispatchMethodName));
         }
 
-        var closedDispatchMethod = isCovariantView
+        return isCovariantView
             ? dispatchMethod.MakeGenericMethod(requestType, declaredResponseType)
             : dispatchMethod.MakeGenericMethod(requestType);
-        var serviceProviderParameter = Expression.Parameter(typeof(IServiceProvider), "serviceProvider");
-        var requestParameter = Expression.Parameter(typeof(IRequest<TResponse>), "request");
-        var cancellationTokenParameter = Expression.Parameter(typeof(CancellationToken), "cancellationToken");
-        var dispatchCall = Expression.Call(closedDispatchMethod, serviceProviderParameter, requestParameter, cancellationTokenParameter);
-
-        return Expression.Lambda<RequestPipelineDispatchDelegate>(
-            dispatchCall,
-            serviceProviderParameter,
-            requestParameter,
-            cancellationTokenParameter).Compile();
     }
 
     /// <summary>

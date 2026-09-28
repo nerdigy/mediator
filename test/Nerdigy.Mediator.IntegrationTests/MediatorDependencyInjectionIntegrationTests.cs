@@ -319,6 +319,26 @@ public sealed class MediatorDependencyInjectionIntegrationTests
     }
 
     /// <summary>
+    /// Verifies a void-style request sent through its <c>IRequest&lt;Unit&gt;</c> view runs its scanned void handler once.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task AddMediator_WhenSendingVoidRequestThroughUnitView_ResolvesVoidHandlerAndPipeline()
+    {
+        using var provider = BuildProvider();
+        var mediator = provider.GetRequiredService<IMediator>();
+        var tracker = provider.GetRequiredService<IntegrationTracker>();
+        IRequest<Unit> command = new IntegrationVoidCommand("alpha");
+
+        var response = await mediator.Send(command, CancellationToken.None);
+
+        Assert.Equal(Unit.Value, response);
+        Assert.Single(tracker.Events, recorded => recorded == "void-handler:alpha");
+        Assert.Single(tracker.Events, recorded => recorded == "generic-behavior:before");
+        Assert.Single(tracker.Events, recorded => recorded == "generic-behavior:after");
+    }
+
+    /// <summary>
     /// Verifies a stream request created through a covariant response view runs its scanned handler and pipeline.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
