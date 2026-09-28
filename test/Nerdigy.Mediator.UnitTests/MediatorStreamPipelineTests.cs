@@ -129,6 +129,40 @@ public sealed class MediatorStreamPipelineTests
     }
 
     /// <summary>
+    /// Verifies stream exception handlers and actions follow the thrown exception's actual inheritance chain, most specific first.
+    /// </summary>
+    /// <param name="exceptionType">The exception type thrown during stream enumeration.</param>
+    /// <param name="expectedChain">The exception type names expected to be visited, most specific first.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(typeof(FileNotFoundException), new[] { "FileNotFoundException", "IOException", "SystemException", "Exception" })]
+    [InlineData(typeof(HttpRequestException), new[] { "HttpRequestException", "Exception" })]
+    public async Task CreateStream_WhenExceptionUnhandled_WalksActualExceptionTypeHierarchy(Type exceptionType, string[] expectedChain)
+    {
+        List<string> events = [];
+        var exception = (Exception)Activator.CreateInstance(exceptionType)!;
+        (Type, object?)[] registrations =
+        [
+            (typeof(IStreamRequestHandler<StreamPipelineRequest, int>), new ExceptionThrowingStreamHandler(exception)),
+            .. HierarchyRecordingRegistrations<FileNotFoundException>(events),
+            .. HierarchyRecordingRegistrations<IOException>(events),
+            .. HierarchyRecordingRegistrations<SystemException>(events),
+            .. HierarchyRecordingRegistrations<HttpRequestException>(events),
+            .. HierarchyRecordingRegistrations<Exception>(events)
+        ];
+        var mediator = new MediatorRuntime(new TestServiceProvider(registrations));
+
+        var thrown = await Assert.ThrowsAsync(
+            exceptionType,
+            () => ToListAsync(mediator.CreateStream(new StreamPipelineRequest(1), CancellationToken.None), CancellationToken.None));
+
+        Assert.Same(exception, thrown);
+        Assert.Equal(
+            [.. expectedChain.Select(name => $"handler:{name}"), .. expectedChain.Select(name => $"action:{name}")],
+            events);
+    }
+
+    /// <summary>
     /// Enumerates an asynchronous sequence and returns its values as a list.
     /// </summary>
     /// <typeparam name="T">The sequence element type.</typeparam>
@@ -491,6 +525,141 @@ public sealed class MediatorStreamPipelineTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             WasCalled = true;
+
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Creates non-handling stream exception handler and action registrations that record when they run.
+    /// </summary>
+    /// <typeparam name="TException">The exception type the handler and action are registered for.</typeparam>
+    /// <param name="events">The event sink used by tests.</param>
+    /// <returns>The service registrations for the handler and action.</returns>
+    private static (Type, object?)[] HierarchyRecordingRegistrations<TException>(List<string> events)
+        where TException : Exception
+    {
+        return
+        [
+            (typeof(IEnumerable<IStreamRequestExceptionHandler<StreamPipelineRequest, int, TException>>), new IStreamRequestExceptionHandler<StreamPipelineRequest, int, TException>[] { new HierarchyRecordingStreamExceptionHandler<TException>(events) }),
+            (typeof(IEnumerable<IRequestExceptionAction<StreamPipelineRequest, TException>>), new IRequestExceptionAction<StreamPipelineRequest, TException>[] { new HierarchyRecordingStreamExceptionAction<TException>(events) })
+        ];
+    }
+
+    /// <summary>
+    /// Throws a supplied exception during stream enumeration.
+    /// </summary>
+    private sealed class ExceptionThrowingStreamHandler : IStreamRequestHandler<StreamPipelineRequest, int>
+    {
+        private readonly Exception _exception;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ExceptionThrowingStreamHandler"/> class.
+        /// </summary>
+        /// <param name="exception">The exception to throw.</param>
+        public ExceptionThrowingStreamHandler(Exception exception)
+        {
+            ArgumentNullException.ThrowIfNull(exception);
+            _exception = exception;
+        }
+
+        /// <summary>
+        /// Handles a stream request and returns a stream that throws.
+        /// </summary>
+        /// <param name="request">The request to handle.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>An asynchronous sequence that throws during enumeration.</returns>
+        public IAsyncEnumerable<int> Handle(StreamPipelineRequest request, CancellationToken cancellationToken)
+        {
+            return ThrowingStream(cancellationToken);
+        }
+
+        /// <summary>
+        /// Produces a stream that throws the supplied exception.
+        /// </summary>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>An asynchronous sequence that throws.</returns>
+        private async IAsyncEnumerable<int> ThrowingStream([EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            cancellationToken.ThrowIfCancellationRequested();
+            throw _exception;
+#pragma warning disable CS0162
+            yield break;
+#pragma warning restore CS0162
+        }
+    }
+
+    /// <summary>
+    /// Records stream exception handler execution without marking the exception as handled.
+    /// </summary>
+    /// <typeparam name="TException">The exception type this handler is registered for.</typeparam>
+    private sealed class HierarchyRecordingStreamExceptionHandler<TException> : IStreamRequestExceptionHandler<StreamPipelineRequest, int, TException>
+        where TException : Exception
+    {
+        private readonly List<string> _events;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="HierarchyRecordingStreamExceptionHandler{TException}"/> class.
+        /// </summary>
+        /// <param name="events">The event sink used by tests.</param>
+        public HierarchyRecordingStreamExceptionHandler(List<string> events)
+        {
+            ArgumentNullException.ThrowIfNull(events);
+            _events = events;
+        }
+
+        /// <summary>
+        /// Records the handled exception type.
+        /// </summary>
+        /// <param name="request">The request being processed.</param>
+        /// <param name="exception">The thrown exception.</param>
+        /// <param name="state">The mutable exception handling state.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>A completed task.</returns>
+        public Task Handle(
+            StreamPipelineRequest request,
+            TException exception,
+            StreamRequestExceptionHandlerState<int> state,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _events.Add($"handler:{typeof(TException).Name}");
+
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Records request exception action execution for stream requests.
+    /// </summary>
+    /// <typeparam name="TException">The exception type this action is registered for.</typeparam>
+    private sealed class HierarchyRecordingStreamExceptionAction<TException> : IRequestExceptionAction<StreamPipelineRequest, TException>
+        where TException : Exception
+    {
+        private readonly List<string> _events;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="HierarchyRecordingStreamExceptionAction{TException}"/> class.
+        /// </summary>
+        /// <param name="events">The event sink used by tests.</param>
+        public HierarchyRecordingStreamExceptionAction(List<string> events)
+        {
+            ArgumentNullException.ThrowIfNull(events);
+            _events = events;
+        }
+
+        /// <summary>
+        /// Records the observed exception type.
+        /// </summary>
+        /// <param name="request">The request being processed.</param>
+        /// <param name="exception">The thrown exception.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>A completed task.</returns>
+        public Task Execute(StreamPipelineRequest request, TException exception, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _events.Add($"action:{typeof(TException).Name}");
 
             return Task.CompletedTask;
         }

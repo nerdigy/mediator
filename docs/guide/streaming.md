@@ -264,7 +264,7 @@ Exception actions cannot prevent the exception from propagating. To recover from
 
 ### Exception Resolution Order
 
-The runtime evaluates exception handlers and actions from the most specific exception type to the least specific, walking up the type hierarchy. For example, if a handler throws `HttpRequestException`, the runtime checks handlers registered for `HttpRequestException` first, then `IOException`, then `Exception`.
+The runtime evaluates exception handlers and actions from the most specific exception type to the least specific, walking up the type hierarchy. For example, if a handler throws `FileNotFoundException`, the runtime checks handlers registered for `FileNotFoundException` first, then `IOException`, then `SystemException`, then `Exception`. An `HttpRequestException` derives directly from `Exception`, so only `HttpRequestException` and `Exception` handlers see it.
 
 The first handler that calls `state.SetHandled(...)` wins. Remaining handlers are not invoked.
 
