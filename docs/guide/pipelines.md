@@ -372,7 +372,7 @@ Pipeline components are discovered automatically by assembly scanning and regist
 ```csharp
 services.AddMediator(options =>
 {
-    options.RegisterServicesFromAssemblyContaining<LoggingBehavior<,>>();
+    options.RegisterServicesFromAssembly(typeof(LoggingBehavior<,>).Assembly);
 });
 ```
 
