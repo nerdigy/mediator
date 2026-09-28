@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Nerdigy.Mediator.Contracts;
 using Nerdigy.Mediator.DependencyInjection;
+using Nerdigy.Mediator.IntegrationTests.UnsupportedComponents;
 
 namespace Nerdigy.Mediator.IntegrationTests;
 
@@ -88,6 +89,70 @@ public sealed class MediatorDependencyInjectionIntegrationTests
             }));
 
         Assert.Equal("openBehaviorType", exception.ParamName);
+    }
+
+    /// <summary>
+    /// Verifies open behaviors whose type parameters do not map positionally onto the interface are rejected.
+    /// </summary>
+    /// <param name="openBehaviorType">The unsupported open behavior type.</param>
+    [Theory]
+    [InlineData(typeof(StringResponseBehavior<>))]
+    [InlineData(typeof(ReversedParametersBehavior<,>))]
+    public void AddMediator_WhenOpenBehaviorTypeParametersDoNotMatchInterface_ThrowsArgumentException(Type openBehaviorType)
+    {
+        var services = new ServiceCollection();
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            services.AddMediator(options =>
+            {
+                options.RegisterServicesFromAssemblyContaining<IntegrationRequestHandler>();
+                options.AddOpenBehavior(openBehaviorType);
+            }));
+
+        Assert.Equal("openBehaviorType", exception.ParamName);
+        Assert.Contains("same order", exception.Message);
+    }
+
+    /// <summary>
+    /// Verifies scanning open-generic components the container cannot close fails with every offending type listed.
+    /// </summary>
+    [Fact]
+    public void AddMediator_WhenScannedOpenGenericTypeParametersDoNotMatchInterface_ThrowsInvalidOperationException()
+    {
+        var services = new ServiceCollection();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            services.AddMediator(typeof(StringResponseBehavior<>).Assembly));
+
+        Assert.Contains("StringResponseBehavior<TRequest> implements IPipelineBehavior<TRequest, String>", exception.Message);
+        Assert.Contains("ReversedParametersBehavior<TResponse, TRequest> implements IPipelineBehavior<TRequest, TResponse>", exception.Message);
+        Assert.Contains("AnyExceptionHandler<TRequest, TResponse> implements IRequestExceptionHandler<TRequest, TResponse, Exception>", exception.Message);
+    }
+
+    /// <summary>
+    /// Verifies positional open-generic behaviors, scanned and explicitly configured, start and execute under a validating container.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task AddMediator_WhenOpenGenericTypeParametersMatchInterface_BuildsAndExecutesBehaviors()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IntegrationTracker>();
+        services.AddMediator(options =>
+        {
+            options.RegisterServicesFromAssemblyContaining<IntegrationRequestHandler>();
+            options.AddOpenBehavior(typeof(OrderedIntegrationRequestBehaviorA<,>));
+        });
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
+        var mediator = provider.GetRequiredService<IMediator>();
+        var tracker = provider.GetRequiredService<IntegrationTracker>();
+
+        _ = await mediator.Send(new IntegrationRequest("alpha"), CancellationToken.None);
+
+        Assert.Contains("generic-behavior:before", tracker.Events);
+        Assert.Contains("ordered-a:before", tracker.Events);
+        Assert.Contains("handler", tracker.Events);
     }
 
     /// <summary>

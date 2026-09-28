@@ -121,6 +121,20 @@ services.AddMediator(options =>
 
 The same pattern works for `IRequestPreProcessor<>`, `IRequestPostProcessor<,>`, `IStreamPipelineBehavior<,>`, exception handlers, and exception actions.
 
+### Supported Open-Generic Shapes
+
+The DI container closes an open generic by passing the service interface's type arguments to the implementation **positionally**. An open-generic component is therefore supported only when its type parameters are exactly the interface's type arguments, one-to-one and in the same order.
+
+| Declaration | Supported | Why |
+| --- | --- | --- |
+| `LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>` | Yes | Parameters map positionally onto the interface |
+| `AuditPreProcessor<TRequest> : IRequestPreProcessor<TRequest>` | Yes | Parameters map positionally onto the interface |
+| `StringBehavior<TRequest> : IPipelineBehavior<TRequest, string>` | No | Partially closed: the interface has a fixed type argument |
+| `ReversedBehavior<TResponse, TRequest> : IPipelineBehavior<TRequest, TResponse>` | No | Parameters are declared in a different order |
+| `LogAllExceptions<TRequest, TResponse> : IRequestExceptionHandler<TRequest, TResponse, Exception>` | No | Partially closed: the exception type is fixed |
+
+`AddMediator` throws an `InvalidOperationException` that lists every unsupported open-generic component found while scanning, and `AddOpenBehavior` throws an `ArgumentException` for an unsupported behavior type. To fix one, reorder its type parameters to match the interface, or close it for a specific request (for example, `GetUserBehavior : IPipelineBehavior<GetUserQuery, UserDto>`).
+
 ## Service Lifetimes
 
 Two properties on `NerdigyMediatorOptions` control lifetimes:

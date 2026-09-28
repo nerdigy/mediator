@@ -108,16 +108,26 @@ public sealed class NerdigyMediatorOptions
                 nameof(openBehaviorType));
         }
 
-        var implementsPipelineBehavior = openBehaviorType
+        var pipelineBehaviorInterface = openBehaviorType
             .GetInterfaces()
-            .Any(static interfaceType =>
+            .FirstOrDefault(static interfaceType =>
                 interfaceType.IsGenericType &&
                 interfaceType.GetGenericTypeDefinition() == typeof(IPipelineBehavior<,>));
 
-        if (!implementsPipelineBehavior)
+        if (pipelineBehaviorInterface is null)
         {
             throw new ArgumentException(
                 $"Open behavior type '{openBehaviorType}' must implement IPipelineBehavior<,>.",
+                nameof(openBehaviorType));
+        }
+
+        if (!MediatorServiceScanner.CanContainerCloseOpenGeneric(openBehaviorType, pipelineBehaviorInterface))
+        {
+            throw new ArgumentException(
+                $"Open behavior type '{MediatorServiceScanner.FormatTypeName(openBehaviorType)}' implements " +
+                $"{MediatorServiceScanner.FormatTypeName(pipelineBehaviorInterface)}, but its type parameters must match " +
+                "IPipelineBehavior<TRequest, TResponse> one-to-one and in the same order (for example, MyBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>). " +
+                "To target a specific request, close the type (for example, MyBehavior : IPipelineBehavior<MyRequest, MyResponse>) and let assembly scanning register it.",
                 nameof(openBehaviorType));
         }
 
