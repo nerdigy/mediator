@@ -113,7 +113,7 @@ If an exception occurs mid-enumeration and a handler provides a replacement stre
 
 ## Notification Publishing
 
-`Mediator.Publish<TNotification>()` resolves all registered `INotificationHandler<TNotification>` instances from the DI container and delegates to an `INotificationPublisher` strategy.
+`Mediator.Publish<TNotification>()` resolves all registered `INotificationHandler<T>` instances for the notification's concrete runtime type from the DI container and delegates to an `INotificationPublisher` strategy. Publishing through an `INotification`, base-class, or generic reference reaches the same handlers as publishing the concrete type directly. Handlers registered only for the interface or base type are not invoked.
 
 If no handlers are registered, publish completes immediately as a no-op.
 

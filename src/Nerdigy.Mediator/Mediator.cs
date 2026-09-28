@@ -76,9 +76,9 @@ public sealed class Mediator : IMediator
     }
 
     /// <summary>
-    /// Publishes a notification to all registered handlers.
+    /// Publishes a notification to all handlers registered for its concrete runtime type.
     /// </summary>
-    /// <typeparam name="TNotification">The notification type.</typeparam>
+    /// <typeparam name="TNotification">The notification type inferred at the call site.</typeparam>
     /// <param name="notification">The notification to publish.</param>
     /// <param name="cancellationToken">A cancellation token that can be observed while publishing.</param>
     /// <returns>A task that completes when publishing finishes.</returns>
@@ -87,10 +87,6 @@ public sealed class Mediator : IMediator
     {
         ArgumentNullException.ThrowIfNull(notification);
 
-        var handlers = _serviceProvider.GetService(typeof(IEnumerable<INotificationHandler<TNotification>>))
-            as IEnumerable<INotificationHandler<TNotification>>
-            ?? [];
-
-        return _notificationPublisher.Publish(handlers, notification, cancellationToken);
+        return NotificationDispatcher.Dispatch(_serviceProvider, _notificationPublisher, notification, cancellationToken);
     }
 }

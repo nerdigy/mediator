@@ -217,6 +217,7 @@ public sealed class ProductCacheInvalidationHandler : INotificationHandler<Produ
 ## Behavior Notes
 
 - **Zero handlers is valid.** `Publish` completes successfully when no handlers are registered.
+- **Handlers resolve by runtime type.** Publishing an `OrderPlaced` stored as an `INotification` (for example, from a domain-event queue) invokes the `INotificationHandler<OrderPlaced>` handlers, just like publishing it through its concrete type.
 - **Cancellation tokens propagate.** The `CancellationToken` passed to `Publish` is forwarded to every handler.
 - **No pipeline behaviors.** Notifications do not pass through `IPipelineBehavior<,>`, pre-processors, or post-processors. Each handler receives the notification directly from the publisher strategy.
 - **Handler registration is additive.** The assembly scanner uses `TryAddEnumerable`, so the same handler type is only registered once per notification type, but multiple distinct handler types are all registered.

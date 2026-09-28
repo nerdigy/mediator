@@ -143,6 +143,41 @@ public sealed class MediatorDependencyInjectionIntegrationTests
     }
 
     /// <summary>
+    /// Verifies scoped notification handlers run when publishing through an <see cref="INotification"/> reference.
+    /// </summary>
+    /// <param name="strategy">The notification publisher strategy.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(NerdigyMediatorNotificationPublisherStrategy.Sequential)]
+    [InlineData(NerdigyMediatorNotificationPublisherStrategy.Parallel)]
+    public async Task AddMediator_WhenPublishingInterfaceTypedNotification_InvokesScopedConcreteHandlers(
+        NerdigyMediatorNotificationPublisherStrategy strategy)
+    {
+        using var provider = BuildProvider(options =>
+        {
+            options.MediatorLifetime = ServiceLifetime.Scoped;
+            options.HandlerLifetime = ServiceLifetime.Scoped;
+            options.UseNotificationPublisherStrategy(strategy);
+        });
+        var tracker = provider.GetRequiredService<IntegrationTracker>();
+        IReadOnlyList<INotification> domainEvents = [new IntegrationNotification("n1"), new IntegrationNotification("n2")];
+
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
+
+            foreach (var domainEvent in domainEvents)
+            {
+                await publisher.Publish(domainEvent, CancellationToken.None);
+            }
+        }
+
+        Assert.Equal(4, tracker.NotificationCount);
+        Assert.Equal(2, tracker.Events.Count(e => e == "notification-handler-1"));
+        Assert.Equal(2, tracker.Events.Count(e => e == "notification-handler-2"));
+    }
+
+    /// <summary>
     /// Verifies scanned stream handlers and stream pipeline behaviors execute end-to-end.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
