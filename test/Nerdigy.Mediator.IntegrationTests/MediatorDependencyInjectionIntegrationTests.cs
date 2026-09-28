@@ -74,6 +74,31 @@ public sealed class MediatorDependencyInjectionIntegrationTests
     }
 
     /// <summary>
+    /// Verifies scanning the assembly of an open-generic behavior, as the pipelines guide documents, registers and executes it.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task AddMediator_WhenScanningAssemblyOfOpenGenericBehavior_ExecutesBehavior()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IntegrationTracker>();
+        services.AddMediator(options =>
+        {
+            options.RegisterServicesFromAssembly(typeof(GenericIntegrationRequestBehavior<,>).Assembly);
+        });
+
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        var mediator = provider.GetRequiredService<IMediator>();
+        var tracker = provider.GetRequiredService<IntegrationTracker>();
+
+        var response = await mediator.Send(new IntegrationRequest("alpha"), CancellationToken.None);
+
+        Assert.Equal("handled:alpha", response);
+        Assert.Contains("generic-behavior:before", tracker.Events);
+        Assert.Contains("generic-behavior:after", tracker.Events);
+    }
+
+    /// <summary>
     /// Verifies non-open behavior registrations through options are rejected.
     /// </summary>
     [Fact]
