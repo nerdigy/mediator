@@ -129,6 +129,7 @@ services.AddMediator(options =>
 - The class must be a generic type definition (e.g., `class LoggingBehavior<TRequest, TResponse>`).
 - The class must implement one of the multi-registration interfaces: `INotificationHandler<>`, `IPipelineBehavior<,>`, `IStreamPipelineBehavior<,>`, `IRequestPreProcessor<>`, `IRequestPostProcessor<,>`, `IRequestExceptionHandler<,,>`, `IRequestExceptionAction<,>`, or `IStreamRequestExceptionHandler<,,>`.
 - The class must be in a scanned assembly.
+- The class's type parameters must match the interface's type arguments one-to-one and in the same order. `AddMediator` throws an `InvalidOperationException` for partially closed types such as `StringBehavior<TRequest> : IPipelineBehavior<TRequest, string>`, and for reordered types such as `ReversedBehavior<TResponse, TRequest> : IPipelineBehavior<TRequest, TResponse>`. See [Supported Open-Generic Shapes](./dependency-injection.md#supported-open-generic-shapes).
 
 **Fix:**
 

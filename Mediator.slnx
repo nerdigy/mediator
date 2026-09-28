@@ -8,6 +8,7 @@
     <Project Path="src\Nerdigy.Mediator.Contracts\Nerdigy.Mediator.Contracts.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Nerdigy.Mediator.IntegrationTests.UnsupportedComponents/Nerdigy.Mediator.IntegrationTests.UnsupportedComponents.csproj" />
     <Project Path="test/Nerdigy.Mediator.IntegrationTests/Nerdigy.Mediator.IntegrationTests.csproj" />
     <Project Path="test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj" />
   </Folder>
