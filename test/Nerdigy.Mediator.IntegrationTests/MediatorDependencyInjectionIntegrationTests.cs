@@ -299,6 +299,45 @@ public sealed class MediatorDependencyInjectionIntegrationTests
     }
 
     /// <summary>
+    /// Verifies a request sent through a covariant response view runs its scanned handler and pipeline.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task AddMediator_WhenSendingThroughCovariantResponseView_ResolvesDeclaredHandlerAndPipeline()
+    {
+        using var provider = BuildProvider();
+        var mediator = provider.GetRequiredService<IMediator>();
+        var tracker = provider.GetRequiredService<IntegrationTracker>();
+        IRequest<object> request = new IntegrationRequest("alpha");
+
+        var response = await mediator.Send(request, CancellationToken.None);
+
+        Assert.Equal("handled:alpha", response);
+        Assert.Contains("generic-behavior:before", tracker.Events);
+        Assert.Contains("behavior:before", tracker.Events);
+        Assert.Contains("post:handled:alpha", tracker.Events);
+    }
+
+    /// <summary>
+    /// Verifies a stream request created through a covariant response view runs its scanned handler and pipeline.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task AddMediator_WhenCreatingStreamThroughCovariantResponseView_ResolvesDeclaredHandlerAndPipeline()
+    {
+        using var provider = BuildProvider();
+        var mediator = provider.GetRequiredService<IMediator>();
+        var tracker = provider.GetRequiredService<IntegrationTracker>();
+        IStreamRequest<object> request = new IntegrationTextStreamRequest(2);
+
+        var values = await ToListAsync(mediator.CreateStream(request, CancellationToken.None), CancellationToken.None);
+
+        Assert.Equal(["text-1", "text-2"], values);
+        Assert.Contains("generic-stream-behavior:before", tracker.Events);
+        Assert.Contains("generic-stream-behavior:after", tracker.Events);
+    }
+
+    /// <summary>
     /// Verifies configuring the parallel publisher strategy registers <see cref="TaskWhenAllPublisher"/>.
     /// </summary>
     [Fact]

@@ -157,6 +157,7 @@ public sealed class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Order
 ## Dispatch Behavior
 
 - **Missing handler.** Throws `InvalidOperationException` with a message identifying the unregistered request and handler types.
+- **Covariant views.** A request can be sent through a broader view of its response type, such as `IRequest<object>` for a request that declares `IRequest<string>`. The handler and pipeline registered for the declared response type run, and the result is returned as the broader type. See [Covariant Response Views](/api/runtime-behavior#covariant-response-views).
 - **Cancellation.** The `CancellationToken` passed to `Send` propagates to every pipeline component and the handler itself.
 - **Cached dispatch.** The runtime compiles dispatch delegates per concrete request type using expression trees and caches them in a `ConcurrentDictionary`. The first call for a given request type incurs a one-time compilation cost. Subsequent calls dispatch with zero reflection overhead.
 - **Pipeline integration.** Every request -- including void requests -- flows through the full pipeline: pre-processors, pipeline behaviors, the handler, and post-processors. See the [Pipelines](/guide/pipelines) guide for details.

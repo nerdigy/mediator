@@ -922,3 +922,33 @@ public sealed class UnhandledThrowingIntegrationStreamRequestExceptionAction
         return Task.CompletedTask;
     }
 }
+
+/// <summary>
+/// Represents a stream request with reference-type items for integration tests.
+/// </summary>
+/// <param name="Count">The number of values to produce.</param>
+public sealed record IntegrationTextStreamRequest(int Count) : IStreamRequest<string>;
+
+/// <summary>
+/// Handles <see cref="IntegrationTextStreamRequest"/> requests.
+/// </summary>
+public sealed class IntegrationTextStreamRequestHandler : IStreamRequestHandler<IntegrationTextStreamRequest, string>
+{
+    /// <summary>
+    /// Handles a stream request.
+    /// </summary>
+    /// <param name="request">The request to handle.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>An asynchronous sequence of stream values.</returns>
+    public async IAsyncEnumerable<string> Handle(
+        IntegrationTextStreamRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        for (var value = 1; value <= request.Count; value++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return $"text-{value}";
+            await Task.Yield();
+        }
+    }
+}

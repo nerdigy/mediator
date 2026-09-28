@@ -72,4 +72,25 @@ internal static class MediatorDiagnostics
 
         return $"No stream request handler is registered for request type '{requestType.FullName}' and response type '{responseType.FullName}'. Register IStreamRequestHandler<{requestType.Name}, {responseType.Name}> in your dependency injection container.";
     }
+
+    /// <summary>
+    /// Creates an ambiguous-declared-response message.
+    /// </summary>
+    /// <param name="requestType">The request type.</param>
+    /// <param name="requestedResponseType">The response type requested by the caller.</param>
+    /// <param name="declaredResponseTypes">The declared response types that are covariant with the requested response type.</param>
+    /// <returns>A diagnostic message that explains the ambiguity.</returns>
+    public static string AmbiguousDeclaredResponse(
+        Type requestType,
+        Type requestedResponseType,
+        IEnumerable<Type> declaredResponseTypes)
+    {
+        ArgumentNullException.ThrowIfNull(requestType);
+        ArgumentNullException.ThrowIfNull(requestedResponseType);
+        ArgumentNullException.ThrowIfNull(declaredResponseTypes);
+
+        var declaredNames = string.Join(", ", declaredResponseTypes.Select(type => $"'{type.FullName}'"));
+
+        return $"Request type '{requestType.FullName}' cannot be dispatched with response type '{requestedResponseType.FullName}' because it declares more than one compatible response type ({declaredNames}). Dispatch it using the exact response type of the handler you want to run.";
+    }
 }
