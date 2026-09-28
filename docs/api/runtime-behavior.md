@@ -122,7 +122,7 @@ If no handlers are registered, publish completes immediately as a no-op.
 | Strategy | Class | Behavior |
 |---|---|---|
 | **Sequential** (default) | `ForeachAwaitPublisher` | Awaits each handler one at a time, in registration order. A handler exception stops subsequent handlers. |
-| **Parallel** | `TaskWhenAllPublisher` | Starts all handlers concurrently, then awaits `Task.WhenAll`. All handlers execute even if one faults. |
+| **Parallel** | `TaskWhenAllPublisher` | Starts all handlers concurrently, then awaits `Task.WhenAll`. All handlers execute even if one faults, including a handler that throws synchronously before returning a task; the publish task faults only after every started handler finishes. |
 
 `TaskWhenAllPublisher` includes fast paths: zero handlers return `Task.CompletedTask`, a single handler executes without creating a `Task[]` array.
 

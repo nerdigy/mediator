@@ -44,7 +44,7 @@ public sealed class TaskWhenAllPublisher : INotificationPublisher
 
             foreach (var handler in collection)
             {
-                pendingTasks[index] = handler.Handle(notification, cancellationToken);
+                pendingTasks[index] = StartHandler(handler, notification, cancellationToken);
                 index++;
             }
 
@@ -56,7 +56,7 @@ public sealed class TaskWhenAllPublisher : INotificationPublisher
 
         foreach (var handler in handlers)
         {
-            var task = handler.Handle(notification, cancellationToken);
+            var task = StartHandler(handler, notification, cancellationToken);
 
             if (firstTask is null)
             {
@@ -79,5 +79,37 @@ public sealed class TaskWhenAllPublisher : INotificationPublisher
         }
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Starts a handler, converting a synchronous throw into a completed task so remaining handlers still start.
+    /// </summary>
+    /// <typeparam name="TNotification">The notification type.</typeparam>
+    /// <param name="handler">The handler to start.</param>
+    /// <param name="notification">The notification to handle.</param>
+    /// <param name="cancellationToken">A cancellation token that can be observed while handling.</param>
+    /// <returns>The handler task, or a canceled or faulted task when the handler throws synchronously.</returns>
+    private static Task StartHandler<TNotification>(
+        INotificationHandler<TNotification> handler,
+        TNotification notification,
+        CancellationToken cancellationToken)
+        where TNotification : INotification
+    {
+        try
+        {
+            return handler.Handle(notification, cancellationToken);
+        }
+        catch (OperationCanceledException exception)
+        {
+            // Mirror async method semantics: a thrown cancellation produces a canceled task, not a faulted one.
+            var canceled = new TaskCompletionSource();
+            _ = canceled.TrySetCanceled(exception.CancellationToken);
+
+            return canceled.Task;
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException(exception);
+        }
     }
 }
