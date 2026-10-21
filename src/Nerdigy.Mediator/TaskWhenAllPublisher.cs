@@ -36,7 +36,7 @@ public sealed class TaskWhenAllPublisher : INotificationPublisher
                 using var enumerator = collection.GetEnumerator();
                 _ = enumerator.MoveNext();
 
-                return enumerator.Current.Handle(notification, cancellationToken);
+                return StartHandler(enumerator.Current, notification, cancellationToken);
             }
 
             var pendingTasks = new Task[collection.Count];
