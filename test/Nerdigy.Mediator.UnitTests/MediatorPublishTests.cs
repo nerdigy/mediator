@@ -163,6 +163,34 @@ public sealed class MediatorPublishTests
     }
 
     /// <summary>
+    /// Verifies that a single handler's synchronous exception produces a faulted task, matching the multi-handler path.
+    /// </summary>
+    /// <param name="useCollection">Whether handlers are supplied as an <see cref="ICollection{T}"/> or a lazy enumerable.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Publish_WithTaskWhenAllPublisher_WhenSingleHandlerThrowsSynchronously_ReturnsFaultedTask(bool useCollection)
+    {
+        var failure = new InvalidOperationException("sync failure");
+
+        INotificationHandler<UserCreatedNotification>[] handlers =
+        [
+            new SynchronouslyThrowingNotificationHandler(failure)
+        ];
+
+        var publishTask = new TaskWhenAllPublisher().Publish(
+            useCollection ? handlers : EnumerateLazily(handlers),
+            new UserCreatedNotification("lambda"),
+            CancellationToken.None);
+
+        Assert.True(publishTask.IsFaulted);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => publishTask);
+        Assert.Same(failure, exception);
+    }
+
+    /// <summary>
     /// Verifies that publishing a null notification throws.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>

@@ -396,6 +396,26 @@ public sealed class MediatorDependencyInjectionIntegrationTests
     }
 
     /// <summary>
+    /// Verifies configuring a publisher instance registers that instance one time as <see cref="INotificationPublisher"/>.
+    /// </summary>
+    [Fact]
+    public void AddMediator_WhenPublisherInstanceConfigured_RegistersInstanceOnce()
+    {
+        var publisherInstance = new TaskWhenAllPublisher();
+        var services = new ServiceCollection();
+
+        services.AddMediator(options =>
+        {
+            options.RegisterServicesFromAssemblyContaining<IntegrationRequestHandler>();
+            options.UseNotificationPublisher(publisherInstance);
+        });
+
+        var descriptor = Assert.Single(services, static descriptor => descriptor.ServiceType == typeof(INotificationPublisher));
+        Assert.Same(publisherInstance, descriptor.ImplementationInstance);
+        Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
+    }
+
+    /// <summary>
     /// Builds a service provider configured with mediator scanning for integration test types.
     /// </summary>
     /// <param name="configure">Additional mediator option configuration.</param>

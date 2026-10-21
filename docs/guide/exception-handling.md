@@ -179,6 +179,8 @@ The stream exception pipeline catches exceptions at two points:
 
 In both cases, `IStreamRequestExceptionHandler` can supply a replacement stream. If a handler provides one during enumeration, the runtime switches to the new stream and continues yielding items from it.
 
+Exception handlers can replace a stream one time only for each `CreateStream` call. If the replacement stream throws, exception actions run and the exception propagates. To try more than one fallback source, write the replacement stream so that it tries each source.
+
 ## Type Hierarchy Resolution
 
 The runtime walks the thrown exception's type hierarchy from most-specific to least-specific. For a `SqlTimeoutException` that inherits from `DbException` which inherits from `Exception`, the resolution order is:

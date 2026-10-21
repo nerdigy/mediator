@@ -223,7 +223,7 @@ public sealed class OrderStreamFallbackHandler
 }
 ```
 
-Call `state.SetHandled(replacementStream)` to mark the exception as handled and provide a fallback `IAsyncEnumerable<TResponse>`. The runtime switches to the replacement stream and continues enumeration. The original exception does not propagate.
+Call `state.SetHandled(replacementStream)` to mark the exception as handled and provide a fallback `IAsyncEnumerable<TResponse>`. The runtime switches to the replacement stream and continues enumeration. The original exception does not propagate. The runtime replaces a stream one time only. If the replacement stream throws, the exception propagates without a second call to the exception handlers.
 
 The `StreamRequestExceptionHandlerState<TResponse>` class exposes:
 
