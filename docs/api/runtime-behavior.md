@@ -107,11 +107,15 @@ If both tokens are cancelable, the runtime creates a linked `CancellationTokenSo
 Stream exception handling applies at two points:
 
 1. **During pipeline construction** -- exceptions thrown by pre-processors or stream behaviors while building the initial stream.
-2. **During enumeration** -- exceptions thrown by `GetAsyncEnumerator()` or `MoveNextAsync()` as the consumer iterates the stream.
+2. **During enumeration** -- exceptions thrown by `GetAsyncEnumerator()`, `MoveNextAsync()`, or `Current` as the consumer iterates the stream.
 
 At both points, the runtime follows the same [exception processing flow](#exception-processing-flow), but uses `IStreamRequestExceptionHandler<TRequest, TResponse, TException>` instead of request exception handlers. A handled stream exception replaces the active stream with the handler's fallback `IAsyncEnumerable<TResponse>`, and enumeration continues from the replacement stream.
 
 If an exception occurs mid-enumeration and a handler provides a replacement stream, the runtime disposes the faulted enumerator and switches to the new stream seamlessly.
+
+Exception handlers can replace a stream one time only for each `CreateStream` call. If the replacement stream also throws, the runtime does not call the exception handlers again. The exception actions run, and the exception propagates to the consumer. This rule prevents an infinite recovery loop, for example when a canceled token makes each replacement stream fail.
+
+Exceptions from `DisposeAsync()` on an enumerator do not go through stream exception handlers or exception actions. The runtime propagates them to the consumer. If enumeration has already failed, the disposal exception replaces the original exception.
 
 ## Covariant Response Views
 

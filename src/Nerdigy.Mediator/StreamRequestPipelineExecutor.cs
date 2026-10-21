@@ -70,7 +70,12 @@ internal static class StreamRequestPipelineExecutor<TRequest, TResponse>
                 effectiveCancellationToken,
                 handlerFactory).ConfigureAwait(false);
 
-            await foreach (var item in EnumerateWithExceptionHandling(serviceProvider, request, initialStream, effectiveCancellationToken))
+            await foreach (var item in EnumerateWithExceptionHandling(
+                serviceProvider,
+                request,
+                initialStream.Stream,
+                !initialStream.IsReplacement,
+                effectiveCancellationToken))
             {
                 yield return item;
             }
@@ -88,8 +93,10 @@ internal static class StreamRequestPipelineExecutor<TRequest, TResponse>
     /// <param name="request">The request being processed.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <param name="handlerFactory">The terminal stream handler delegate factory.</param>
-    /// <returns>A task that resolves to the initial stream.</returns>
-    private static async Task<IAsyncEnumerable<TResponse>> TryBuildInitialStream(
+    /// <returns>
+    /// A task that resolves to the initial stream, and a value that is <see langword="true"/> when an exception handler supplied that stream.
+    /// </returns>
+    private static async Task<(IAsyncEnumerable<TResponse> Stream, bool IsReplacement)> TryBuildInitialStream(
         IServiceProvider serviceProvider,
         TRequest request,
         CancellationToken cancellationToken,
@@ -100,7 +107,7 @@ internal static class StreamRequestPipelineExecutor<TRequest, TResponse>
             await ExecutePreProcessors(serviceProvider, request, cancellationToken).ConfigureAwait(false);
             var pipeline = BuildPipeline(serviceProvider, request, cancellationToken, handlerFactory);
 
-            return pipeline();
+            return (pipeline(), false);
         }
         catch (Exception exception)
         {
@@ -112,7 +119,7 @@ internal static class StreamRequestPipelineExecutor<TRequest, TResponse>
 
             if (handlingResult.Handled)
             {
-                return handlingResult.ResponseStream;
+                return (handlingResult.ResponseStream, true);
             }
 
             await StreamRequestExceptionProcessor<TRequest, TResponse>.ExecuteActions(
@@ -129,15 +136,21 @@ internal static class StreamRequestPipelineExecutor<TRequest, TResponse>
     /// <summary>
     /// Enumerates a stream and applies stream exception handling for enumeration failures.
     /// </summary>
+    /// <remarks>
+    /// Exception handlers can replace a stream one time only. When a replacement stream fails, exception actions run and
+    /// the exception propagates. This rule prevents an infinite recovery loop when the replacement stream also fails.
+    /// </remarks>
     /// <param name="serviceProvider">The service provider used to resolve stream exception services.</param>
     /// <param name="request">The request being processed.</param>
     /// <param name="initialStream">The initial stream to enumerate.</param>
+    /// <param name="canRecover">Whether exception handlers can still replace the active stream.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>An asynchronous sequence of streamed response payloads.</returns>
     private static async IAsyncEnumerable<TResponse> EnumerateWithExceptionHandling(
         IServiceProvider serviceProvider,
         TRequest request,
         IAsyncEnumerable<TResponse> initialStream,
+        bool canRecover,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var activeStream = initialStream;
@@ -148,77 +161,84 @@ internal static class StreamRequestPipelineExecutor<TRequest, TResponse>
 
             if (enumeratorResult.Exception is not null)
             {
-                var handledCreationResult = await StreamRequestExceptionProcessor<TRequest, TResponse>.TryHandle(
+                activeStream = await HandleOrRethrow(
                     serviceProvider,
                     request,
                     enumeratorResult.Exception,
+                    canRecover,
                     cancellationToken).ConfigureAwait(false);
+                canRecover = false;
 
-                if (handledCreationResult.Handled)
-                {
-                    activeStream = handledCreationResult.ResponseStream;
-                    continue;
-                }
-
-                await StreamRequestExceptionProcessor<TRequest, TResponse>.ExecuteActions(
-                    serviceProvider,
-                    request,
-                    enumeratorResult.Exception,
-                    cancellationToken).ConfigureAwait(false);
-                StreamRequestExceptionProcessor<TRequest, TResponse>.Rethrow(enumeratorResult.Exception);
-
-                throw new InvalidOperationException("Exception rethrow unexpectedly returned control to the caller.");
+                continue;
             }
 
             await using var enumerator = enumeratorResult.Enumerator!;
-            var useReplacementStream = false;
 
             while (true)
             {
                 var moveNextResult = await TryMoveNext(enumerator).ConfigureAwait(false);
 
-                if (moveNextResult.Exception is null)
+                if (moveNextResult.Exception is not null)
                 {
-                    if (!moveNextResult.HasValue)
-                    {
-                        break;
-                    }
+                    activeStream = await HandleOrRethrow(
+                        serviceProvider,
+                        request,
+                        moveNextResult.Exception,
+                        canRecover,
+                        cancellationToken).ConfigureAwait(false);
+                    canRecover = false;
 
-                    yield return enumerator.Current;
-                    continue;
-                }
-
-                var handlingResult = await StreamRequestExceptionProcessor<TRequest, TResponse>.TryHandle(
-                    serviceProvider,
-                    request,
-                    moveNextResult.Exception,
-                    cancellationToken).ConfigureAwait(false);
-
-                if (handlingResult.Handled)
-                {
-                    activeStream = handlingResult.ResponseStream;
-                    useReplacementStream = true;
                     break;
                 }
 
-                await StreamRequestExceptionProcessor<TRequest, TResponse>.ExecuteActions(
-                    serviceProvider,
-                    request,
-                    moveNextResult.Exception,
-                    cancellationToken).ConfigureAwait(false);
+                if (!moveNextResult.HasValue)
+                {
+                    yield break;
+                }
 
-                StreamRequestExceptionProcessor<TRequest, TResponse>.Rethrow(moveNextResult.Exception);
-
-                throw new InvalidOperationException("Exception rethrow unexpectedly returned control to the caller.");
+                yield return moveNextResult.Value;
             }
-
-            if (useReplacementStream)
-            {
-                continue;
-            }
-
-            yield break;
         }
+    }
+
+    /// <summary>
+    /// Applies stream exception handlers to a failure, or runs exception actions and rethrows the failure.
+    /// </summary>
+    /// <param name="serviceProvider">The service provider used to resolve stream exception services.</param>
+    /// <param name="request">The request being processed.</param>
+    /// <param name="exception">The exception to process.</param>
+    /// <param name="canRecover">Whether exception handlers can replace the active stream.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task that resolves to the replacement stream supplied by an exception handler.</returns>
+    private static async Task<IAsyncEnumerable<TResponse>> HandleOrRethrow(
+        IServiceProvider serviceProvider,
+        TRequest request,
+        Exception exception,
+        bool canRecover,
+        CancellationToken cancellationToken)
+    {
+        if (canRecover)
+        {
+            var handlingResult = await StreamRequestExceptionProcessor<TRequest, TResponse>.TryHandle(
+                serviceProvider,
+                request,
+                exception,
+                cancellationToken).ConfigureAwait(false);
+
+            if (handlingResult.Handled)
+            {
+                return handlingResult.ResponseStream;
+            }
+        }
+
+        await StreamRequestExceptionProcessor<TRequest, TResponse>.ExecuteActions(
+            serviceProvider,
+            request,
+            exception,
+            cancellationToken).ConfigureAwait(false);
+        StreamRequestExceptionProcessor<TRequest, TResponse>.Rethrow(exception);
+
+        throw new InvalidOperationException("Exception rethrow unexpectedly returned control to the caller.");
     }
 
     /// <summary>
@@ -242,17 +262,20 @@ internal static class StreamRequestPipelineExecutor<TRequest, TResponse>
     }
 
     /// <summary>
-    /// Moves an enumerator forward while capturing move-next exceptions.
+    /// Moves an enumerator forward and reads the current value while capturing exceptions.
     /// </summary>
     /// <param name="enumerator">The enumerator to advance.</param>
     /// <returns>The move-next result.</returns>
-    private static async Task<MoveNextResult> TryMoveNext(IAsyncEnumerator<TResponse> enumerator)
+    private static async ValueTask<MoveNextResult> TryMoveNext(IAsyncEnumerator<TResponse> enumerator)
     {
         try
         {
-            var hasValue = await enumerator.MoveNextAsync().ConfigureAwait(false);
+            if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+            {
+                return MoveNextResult.Completed;
+            }
 
-            return MoveNextResult.FromValue(hasValue);
+            return MoveNextResult.FromValue(enumerator.Current);
         }
         catch (Exception exception)
         {
@@ -373,9 +396,19 @@ internal static class StreamRequestPipelineExecutor<TRequest, TResponse>
     private readonly record struct MoveNextResult
     {
         /// <summary>
+        /// Gets a result that indicates the enumerator has no more values.
+        /// </summary>
+        public static MoveNextResult Completed => default;
+
+        /// <summary>
         /// Gets a value indicating whether the enumerator advanced to a value.
         /// </summary>
         public bool HasValue { get; init; }
+
+        /// <summary>
+        /// Gets the current value when <see cref="HasValue"/> is <see langword="true"/>.
+        /// </summary>
+        public TResponse Value { get; init; }
 
         /// <summary>
         /// Gets the exception thrown during move-next.
@@ -383,15 +416,16 @@ internal static class StreamRequestPipelineExecutor<TRequest, TResponse>
         public Exception? Exception { get; init; }
 
         /// <summary>
-        /// Creates a successful move-next result.
+        /// Creates a successful move-next result that carries a value.
         /// </summary>
-        /// <param name="hasValue">Whether a value is available.</param>
+        /// <param name="value">The current value.</param>
         /// <returns>A successful result.</returns>
-        public static MoveNextResult FromValue(bool hasValue)
+        public static MoveNextResult FromValue(TResponse value)
         {
             return new MoveNextResult
             {
-                HasValue = hasValue,
+                HasValue = true,
+                Value = value,
                 Exception = null
             };
         }
@@ -408,6 +442,7 @@ internal static class StreamRequestPipelineExecutor<TRequest, TResponse>
             return new MoveNextResult
             {
                 HasValue = false,
+                Value = default!,
                 Exception = exception
             };
         }
