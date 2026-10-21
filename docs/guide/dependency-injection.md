@@ -119,7 +119,7 @@ services.AddMediator(options =>
 });
 ```
 
-The same pattern works for `IRequestPreProcessor<>`, `IRequestPostProcessor<,>`, `IStreamPipelineBehavior<,>`, exception handlers, and exception actions.
+`AddOpenBehavior` accepts only open-generic `IPipelineBehavior<,>` types. It throws an `ArgumentException` for other component types. To register other open-generic components, put them in a scanned assembly. This rule applies to `IRequestPreProcessor<>`, `IRequestPostProcessor<,>`, `IStreamPipelineBehavior<,>`, exception handlers, and exception actions.
 
 ### Supported Open-Generic Shapes
 
@@ -157,6 +157,10 @@ services.AddMediator(options =>
 
 ::: tip
 If your handlers inject scoped services (like `DbContext`), set `HandlerLifetime` to `Scoped` to match their scope. Resolving a scoped dependency from a transient service works in some containers but produces subtle lifetime bugs in others.
+:::
+
+::: warning
+Do not set `MediatorLifetime` to `Singleton` if a handler or pipeline component has a scoped dependency. A singleton mediator uses the root service provider to resolve handlers and pipeline components. All requests then share one instance of each scoped dependency. If scope validation is on, the container throws an `InvalidOperationException` instead. Use `Scoped` or `Transient` for `MediatorLifetime` and resolve `IMediator` from a scope.
 :::
 
 ## Notification Publisher Strategy
