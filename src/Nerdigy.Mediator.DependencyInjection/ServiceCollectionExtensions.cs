@@ -80,7 +80,6 @@ public static class ServiceCollectionExtensions
     {
         if (options.NotificationPublisherInstance is not null)
         {
-            services.TryAddSingleton(options.NotificationPublisherInstance);
             services.TryAddSingleton<INotificationPublisher>(options.NotificationPublisherInstance);
 
             return;
