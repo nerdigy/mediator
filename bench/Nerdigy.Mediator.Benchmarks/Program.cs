@@ -8,13 +8,11 @@ namespace Nerdigy.Mediator.Benchmarks;
 public static class Program
 {
     /// <summary>
-    /// Application entry point.
+    /// Application entry point. Forwards command-line arguments, such as <c>--filter</c> and <c>--job</c>, to BenchmarkDotNet.
     /// </summary>
     /// <param name="args">Command-line arguments.</param>
     public static void Main(string[] args)
     {
-        _ = args;
-
-        _ = BenchmarkRunner.Run<MediatorBenchmarks>();
+        _ = BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
     }
 }
