@@ -30,6 +30,9 @@ public class MediatorBenchmarks
     private ServiceProvider? _serviceProvider;
     private IMediator? _mediator;
     private PingRequest? _sendRequest;
+    private VoidCommand? _voidCommand;
+    private ValueRequest? _valueRequest;
+    private FailingRequest? _failingRequest;
     private PipelinePingRequest? _pipelineSendRequest;
     private PingNotification? _notification;
     private CountStreamRequest? _streamRequest;
@@ -68,6 +71,9 @@ public class MediatorBenchmarks
         EnsureBareRequestHasNoPipeline(_serviceProvider);
 
         _sendRequest = new PingRequest("payload");
+        _voidCommand = new VoidCommand("payload");
+        _valueRequest = new ValueRequest(41);
+        _failingRequest = new FailingRequest();
         _pipelineSendRequest = new PipelinePingRequest("payload");
         _notification = new PingNotification("payload");
         _streamRequest = new CountStreamRequest(StreamLength);
@@ -118,6 +124,58 @@ public class MediatorBenchmarks
         EnsureInitialized();
 
         return _mediator!.Send(_sendRequest!, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Resolves the handler from the container and calls it, without the mediator, to separate container cost from mediator cost.
+    /// </summary>
+    /// <returns>A task that resolves to the response payload.</returns>
+    [Benchmark]
+    [BenchmarkCategory(SendCategory)]
+    public Task<string> SendResolveAndCallDirect()
+    {
+        EnsureInitialized();
+
+        return _serviceProvider!.GetRequiredService<IRequestHandler<PingRequest, string>>().Handle(_sendRequest!, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Benchmarks void request dispatch with an empty pipeline.
+    /// </summary>
+    /// <returns>A task that completes when the handler finishes.</returns>
+    [Benchmark]
+    [BenchmarkCategory(SendCategory)]
+    public Task SendVoid()
+    {
+        EnsureInitialized();
+
+        return _mediator!.Send(_voidCommand!, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Benchmarks dispatch of a request with a value-type response and an empty pipeline.
+    /// </summary>
+    /// <returns>A task that resolves to the response payload.</returns>
+    [Benchmark]
+    [BenchmarkCategory(SendCategory)]
+    public Task<int> SendValueResponse()
+    {
+        EnsureInitialized();
+
+        return _mediator!.Send(_valueRequest!, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Benchmarks a request whose handler throws and whose exception handler supplies a fallback response.
+    /// </summary>
+    /// <returns>A task that resolves to the fallback response.</returns>
+    [Benchmark]
+    [BenchmarkCategory(SendCategory)]
+    public Task<string> SendWithHandledException()
+    {
+        EnsureInitialized();
+
+        return _mediator!.Send(_failingRequest!, CancellationToken.None);
     }
 
     /// <summary>
@@ -271,6 +329,77 @@ public class MediatorBenchmarks
     /// </summary>
     /// <param name="Payload">The request payload.</param>
     private sealed record PingRequest(string Payload) : IRequest<string>;
+
+    /// <summary>
+    /// Represents a request whose handler always throws.
+    /// </summary>
+    private sealed record FailingRequest : IRequest<string>;
+
+    /// <summary>
+    /// Throws for every request.
+    /// </summary>
+    private sealed class FailingRequestHandler : IRequestHandler<FailingRequest, string>
+    {
+        /// <inheritdoc />
+        public Task<string> Handle(FailingRequest request, CancellationToken cancellationToken)
+        {
+            return Task.FromException<string>(new InvalidOperationException("benchmark failure"));
+        }
+    }
+
+    /// <summary>
+    /// Recovers every <see cref="FailingRequest"/> failure with a fallback response.
+    /// </summary>
+    private sealed class FailingRequestFallback : IRequestExceptionHandler<FailingRequest, string, InvalidOperationException>
+    {
+        /// <inheritdoc />
+        public Task Handle(
+            FailingRequest request,
+            InvalidOperationException exception,
+            RequestExceptionHandlerState<string> state,
+            CancellationToken cancellationToken)
+        {
+            state.SetHandled("fallback");
+
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Represents a void command for send benchmarks.
+    /// </summary>
+    /// <param name="Payload">The command payload.</param>
+    private sealed record VoidCommand(string Payload) : IRequest;
+
+    /// <summary>
+    /// Handles <see cref="VoidCommand"/> requests.
+    /// </summary>
+    private sealed class VoidCommandHandler : IRequestHandler<VoidCommand>
+    {
+        /// <inheritdoc />
+        public Task Handle(VoidCommand request, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Represents a request with a value-type response for send benchmarks.
+    /// </summary>
+    /// <param name="Value">The request value.</param>
+    private sealed record ValueRequest(int Value) : IRequest<int>;
+
+    /// <summary>
+    /// Handles <see cref="ValueRequest"/> requests.
+    /// </summary>
+    private sealed class ValueRequestHandler : IRequestHandler<ValueRequest, int>
+    {
+        /// <inheritdoc />
+        public Task<int> Handle(ValueRequest request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(request.Value + 1);
+        }
+    }
 
     /// <summary>
     /// Handles <see cref="PingRequest"/> requests.
