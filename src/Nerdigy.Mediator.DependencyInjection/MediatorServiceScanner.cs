@@ -1,133 +1,66 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-
-using Nerdigy.Mediator.Contracts;
 
 namespace Nerdigy.Mediator.DependencyInjection;
 
 /// <summary>
-/// Scans assemblies and registers mediator handlers and pipeline components.
+/// Discovers mediator components in assemblies.
 /// </summary>
 internal static class MediatorServiceScanner
 {
-    private static readonly Type[] MultiRegistrationServiceTypeDefinitions =
-    [
-        typeof(INotificationHandler<>),
-        typeof(IPipelineBehavior<,>),
-        typeof(IStreamPipelineBehavior<,>),
-        typeof(IRequestPreProcessor<>),
-        typeof(IRequestPostProcessor<,>),
-        typeof(IRequestExceptionHandler<,,>),
-        typeof(IRequestExceptionAction<,>),
-        typeof(IStreamRequestExceptionHandler<,,>)
-    ];
-
-    private static readonly Type[] SingleRegistrationServiceTypeDefinitions =
-    [
-        typeof(IRequestHandler<,>),
-        typeof(IRequestHandler<>),
-        typeof(IStreamRequestHandler<,>)
-    ];
-
     /// <summary>
-    /// Registers mediator services from the configured assemblies.
-    /// </summary>
-    /// <param name="services">The service collection being configured.</param>
-    /// <param name="assemblies">The assemblies to scan.</param>
-    /// <param name="serviceLifetime">The service lifetime used for registrations.</param>
-    public static void RegisterFromAssemblies(
-        IServiceCollection services,
-        IEnumerable<Assembly> assemblies,
-        ServiceLifetime serviceLifetime)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(assemblies);
-
-        List<string> unsupportedRegistrations = [];
-
-        foreach (var assembly in assemblies.Distinct())
-        {
-            RegisterFromAssembly(services, assembly, serviceLifetime, unsupportedRegistrations);
-        }
-
-        if (unsupportedRegistrations.Count > 0)
-        {
-            throw new InvalidOperationException(
-                "The following open-generic mediator components cannot be registered because the dependency injection container " +
-                "can only close an open generic whose type parameters match the service interface's type arguments one-to-one and in the same order:" +
-                Environment.NewLine +
-                string.Join(Environment.NewLine, unsupportedRegistrations.Select(static registration => $"  - {registration}")) +
-                Environment.NewLine +
-                "Declare the type parameters in the interface's order (for example, MyBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>), " +
-                "or close the type for a specific request (for example, MyBehavior : IPipelineBehavior<MyRequest, MyResponse>).");
-        }
-    }
-
-    /// <summary>
-    /// Determines whether the dependency injection container can close an open-generic implementation as the implemented service interface.
+    /// Discovers the mediator components implemented by concrete classes in the given assemblies.
     /// </summary>
     /// <remarks>
-    /// The container closes an open-generic implementation by passing the service's type arguments to the implementation positionally,
-    /// so the implementation's type parameters must be exactly the implemented interface's type arguments, in the same order.
+    /// Assemblies are scanned in the order given, and types within an assembly in order of full name, so the order of
+    /// scanned behaviors does not depend on how the compiler laid out the assembly.
     /// </remarks>
-    /// <param name="implementationTypeDefinition">The open-generic implementation type definition.</param>
-    /// <param name="implementedInterface">An interface implemented by <paramref name="implementationTypeDefinition"/>.</param>
-    /// <returns><see langword="true"/> when the container can close the mapping; otherwise, <see langword="false"/>.</returns>
-    internal static bool CanContainerCloseOpenGeneric(Type implementationTypeDefinition, Type implementedInterface)
+    /// <param name="assemblies">The assemblies to scan.</param>
+    /// <param name="ignoreTypeLoadFailures">Whether to scan the types that loaded when some types fail to load.</param>
+    /// <param name="lifetime">The lifetime to register discovered components with.</param>
+    /// <param name="problems">Collects components that cannot be registered or would never run.</param>
+    /// <returns>The discovered components in registration order.</returns>
+    [RequiresUnreferencedCode("Assembly scanning discovers components with reflection, which trimming can remove.")]
+    public static List<ScannedComponent> Scan(
+        IEnumerable<Assembly> assemblies,
+        bool ignoreTypeLoadFailures,
+        ServiceLifetime lifetime,
+        List<string> problems)
     {
-        return implementedInterface.GetGenericArguments().SequenceEqual(implementationTypeDefinition.GetGenericArguments());
-    }
+        List<ScannedComponent> components = [];
 
-    /// <summary>
-    /// Registers mediator services from a single assembly.
-    /// </summary>
-    /// <param name="services">The service collection being configured.</param>
-    /// <param name="assembly">The assembly to scan.</param>
-    /// <param name="serviceLifetime">The service lifetime used for registrations.</param>
-    /// <param name="unsupportedRegistrations">Collects descriptions of open-generic components the container cannot close.</param>
-    private static void RegisterFromAssembly(
-        IServiceCollection services,
-        Assembly assembly,
-        ServiceLifetime serviceLifetime,
-        List<string> unsupportedRegistrations)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(assembly);
-
-        foreach (var type in GetLoadableTypes(assembly))
+        foreach (var assembly in assemblies)
         {
-            if (!type.IsClass || type.IsAbstract)
-            {
-                continue;
-            }
+            var types = GetLoadableTypes(assembly, ignoreTypeLoadFailures, problems)
+                .Where(static type => type.IsClass && !type.IsAbstract && (!type.ContainsGenericParameters || type.IsGenericTypeDefinition))
+                .OrderBy(static type => type.FullName, StringComparer.Ordinal);
 
-            if (type.ContainsGenericParameters && !type.IsGenericTypeDefinition)
+            foreach (var type in types)
             {
-                continue;
+                AddImplementedComponents(type, lifetime, components, problems);
             }
-
-            RegisterImplementedServiceInterfaces(services, type, serviceLifetime, unsupportedRegistrations);
         }
+
+        return components;
     }
 
     /// <summary>
-    /// Registers implemented mediator service interfaces for a concrete type.
+    /// Adds the mediator components a type implements.
     /// </summary>
-    /// <param name="services">The service collection being configured.</param>
-    /// <param name="implementationType">The implementation type being inspected.</param>
-    /// <param name="serviceLifetime">The service lifetime used for registrations.</param>
-    /// <param name="unsupportedRegistrations">Collects descriptions of open-generic components the container cannot close.</param>
-    private static void RegisterImplementedServiceInterfaces(
-        IServiceCollection services,
+    /// <param name="implementationType">The concrete implementation type.</param>
+    /// <param name="lifetime">The lifetime to register discovered components with.</param>
+    /// <param name="components">The discovered components.</param>
+    /// <param name="problems">Collects components that cannot be registered or would never run.</param>
+    [RequiresUnreferencedCode("Assembly scanning discovers components with reflection, which trimming can remove.")]
+    private static void AddImplementedComponents(
         Type implementationType,
-        ServiceLifetime serviceLifetime,
-        List<string> unsupportedRegistrations)
+        ServiceLifetime lifetime,
+        List<ScannedComponent> components,
+        List<string> problems)
     {
-        var implementedInterfaces = implementationType.GetInterfaces();
-
-        foreach (var implementedInterface in implementedInterfaces)
+        foreach (var implementedInterface in implementationType.GetInterfaces())
         {
             if (!implementedInterface.IsGenericType)
             {
@@ -136,64 +69,51 @@ internal static class MediatorServiceScanner
 
             var serviceTypeDefinition = implementedInterface.GetGenericTypeDefinition();
 
-            if (!MultiRegistrationServiceTypeDefinitions.Contains(serviceTypeDefinition) &&
-                !SingleRegistrationServiceTypeDefinitions.Contains(serviceTypeDefinition))
+            if (!MediatorComponentRules.IsComponent(serviceTypeDefinition))
             {
                 continue;
             }
 
-            var isOpenGenericRegistration = implementationType.IsGenericTypeDefinition;
-
-            if (isOpenGenericRegistration && !CanContainerCloseOpenGeneric(implementationType, implementedInterface))
+            if (implementationType.IsGenericTypeDefinition)
             {
-                unsupportedRegistrations.Add(
-                    $"{implementationType.Namespace}.{FormatTypeName(implementationType)} implements {FormatTypeName(implementedInterface)}");
+                if (!MediatorComponentRules.CanContainerCloseOpenGeneric(implementationType, implementedInterface))
+                {
+                    problems.Add(
+                        $"{implementationType.Namespace}.{MediatorComponentRules.FormatTypeName(implementationType)} implements {MediatorComponentRules.FormatTypeName(implementedInterface)}, " +
+                        "but the dependency injection container can only close an open generic whose type parameters match the service interface's type arguments one-to-one and in the same order. " +
+                        "Declare the type parameters in the interface's order (for example, MyBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>), " +
+                        "or close the type for a specific request (for example, MyBehavior : IPipelineBehavior<MyRequest, MyResponse>).");
+
+                    continue;
+                }
+
+                components.Add(new ScannedComponent(ServiceDescriptor.Describe(serviceTypeDefinition, implementationType, lifetime), implementationType));
+
                 continue;
             }
 
-            var serviceType = isOpenGenericRegistration
-                ? serviceTypeDefinition
-                : implementedInterface;
+            var problem = MediatorComponentRules.GetUnreachableComponentProblem(implementationType, implementedInterface);
 
-            if (MultiRegistrationServiceTypeDefinitions.Contains(serviceTypeDefinition))
+            if (problem is not null)
             {
-                services.TryAddEnumerable(
-                    ServiceDescriptor.Describe(serviceType, implementationType, serviceLifetime));
+                problems.Add(problem);
+
                 continue;
             }
 
-            if (SingleRegistrationServiceTypeDefinitions.Contains(serviceTypeDefinition))
-            {
-                services.TryAdd(
-                    ServiceDescriptor.Describe(serviceType, implementationType, serviceLifetime));
-            }
+            components.Add(new ScannedComponent(ServiceDescriptor.Describe(implementedInterface, implementationType, lifetime), implementationType));
         }
     }
 
     /// <summary>
-    /// Formats a type name using C#-style generic argument syntax.
-    /// </summary>
-    /// <param name="type">The type to format.</param>
-    /// <returns>The formatted type name, such as <c>IPipelineBehavior&lt;TRequest, String&gt;</c>.</returns>
-    internal static string FormatTypeName(Type type)
-    {
-        if (!type.IsGenericType)
-        {
-            return type.Name;
-        }
-
-        var arityIndex = type.Name.IndexOf('`');
-        var name = arityIndex < 0 ? type.Name : type.Name[..arityIndex];
-
-        return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(FormatTypeName))}>";
-    }
-
-    /// <summary>
-    /// Returns all loadable types from an assembly, excluding unloadable types.
+    /// Gets the types defined in an assembly, reporting types that fail to load.
     /// </summary>
     /// <param name="assembly">The assembly to inspect.</param>
-    /// <returns>A sequence of loadable types.</returns>
-    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
+    /// <param name="ignoreTypeLoadFailures">Whether to return the types that loaded when some types fail to load.</param>
+    /// <param name="problems">Collects the load failure when it is not ignored.</param>
+    /// <returns>The types that loaded.</returns>
+    [RequiresUnreferencedCode("Assembly scanning discovers components with reflection, which trimming can remove.")]
+    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly, bool ignoreTypeLoadFailures, List<string> problems)
     {
         try
         {
@@ -201,7 +121,28 @@ internal static class MediatorServiceScanner
         }
         catch (ReflectionTypeLoadException exception)
         {
+            if (!ignoreTypeLoadFailures)
+            {
+                var loaderErrors = exception.LoaderExceptions
+                    .Where(static loaderException => loaderException is not null)
+                    .Select(static loaderException => loaderException!.Message)
+                    .Distinct()
+                    .ToArray();
+                var details = loaderErrors.Length == 0 ? exception.Message : string.Join(" ", loaderErrors);
+
+                problems.Add(
+                    $"Some types in assembly '{assembly.FullName}' could not be loaded, so handlers in them would be missing: {details} " +
+                    "Fix the missing dependency, or set options.IgnoreTypeLoadFailures = true to scan only the types that loaded.");
+            }
+
             return exception.Types.Where(static type => type is not null).Select(static type => type!);
         }
     }
+
+    /// <summary>
+    /// Represents a discovered mediator component.
+    /// </summary>
+    /// <param name="Descriptor">The service descriptor for the component.</param>
+    /// <param name="ImplementationType">The implementation type.</param>
+    internal readonly record struct ScannedComponent(ServiceDescriptor Descriptor, Type ImplementationType);
 }
