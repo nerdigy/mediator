@@ -8,7 +8,7 @@ public readonly struct Unit : IEquatable<Unit>
     /// <summary>
     /// Gets the singleton <see cref="Unit"/> value.
     /// </summary>
-    public static readonly Unit Value = default;
+    public static readonly Unit Value;
 
     /// <summary>
     /// Determines whether the current value equals the specified object.

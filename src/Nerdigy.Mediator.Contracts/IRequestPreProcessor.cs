@@ -4,7 +4,7 @@ namespace Nerdigy.Mediator.Contracts;
 /// Defines pre-processing behavior that runs before a request handler.
 /// </summary>
 /// <typeparam name="TRequest">The request type.</typeparam>
-public interface IRequestPreProcessor<in TRequest>
+public interface IRequestPreProcessor<TRequest>
     where TRequest : IBaseRequest
 {
     /// <summary>

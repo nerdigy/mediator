@@ -4,7 +4,7 @@ namespace Nerdigy.Mediator.Contracts;
 /// Defines a handler for a notification message.
 /// </summary>
 /// <typeparam name="TNotification">The notification type.</typeparam>
-public interface INotificationHandler<in TNotification>
+public interface INotificationHandler<TNotification>
     where TNotification : INotification
 {
     /// <summary>

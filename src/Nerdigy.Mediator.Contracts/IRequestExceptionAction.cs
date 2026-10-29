@@ -5,7 +5,7 @@ namespace Nerdigy.Mediator.Contracts;
 /// </summary>
 /// <typeparam name="TRequest">The request type.</typeparam>
 /// <typeparam name="TException">The exception type this action can process.</typeparam>
-public interface IRequestExceptionAction<in TRequest, in TException>
+public interface IRequestExceptionAction<TRequest, TException>
     where TRequest : IBaseRequest
     where TException : Exception
 {
