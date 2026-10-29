@@ -4,73 +4,70 @@ This reference documents the internal dispatch lifecycle, pipeline execution ord
 
 ## Request Dispatch Lifecycle
 
-When you call `mediator.Send(request)`, the runtime moves through four internal layers:
+When you call `mediator.Send(request)`, the runtime moves through three internal layers:
 
 ```
 Mediator.Send<TResponse>()
-  --> RequestPipelineDispatcher<TResponse>.Dispatch()
-    --> RequestPipelineExecutor<TRequest, TResponse>.Execute()
-      --> RequestDispatcher<TResponse>.Dispatch()
+  --> RequestInvoker<TResponse>.Get(request.GetType())     // one cache lookup
+    --> RequestInvoker<TRequest, TResponse>.Invoke()
+      --> RequestPipeline<TRequest, TResponse>.Execute()   // pipeline, then the handler
 ```
 
-**Step 1 -- Pipeline Dispatcher.** `RequestPipelineDispatcher<TResponse>` determines the concrete runtime type of the request (e.g. `GetUserQuery`) and looks up a cached dispatch delegate in a `ConcurrentDictionary`. On first encounter, it builds and compiles that delegate via expression trees (see [Dispatch Caching](#dispatch-caching)). The compiled delegate casts the request to its concrete type and forwards it into the pipeline executor.
+**Step 1 -- Invoker lookup.** The runtime looks up the typed invoker for the request's concrete runtime type (e.g. `GetUserQuery`) in a `ConcurrentDictionary`. The invoker was either registered ahead of time by explicit registration, or is created on first use (see [Dispatch Caching](#dispatch-caching)).
 
-**Step 2 -- Pipeline Executor.** `RequestPipelineExecutor<TRequest, TResponse>` orchestrates the full pipeline in this order:
+**Step 2 -- Typed invoker.** `RequestInvoker<TRequest, TResponse>` casts the request to its concrete type once and hands it to the pipeline, together with a cached delegate that resolves and calls the handler.
+
+**Step 3 -- Pipeline.** `RequestPipeline<TRequest, TResponse>` runs the components in this order:
 
 1. **Pre-processors** -- all registered `IRequestPreProcessor<TRequest>` instances run sequentially in registration order.
 2. **Pipeline behaviors** -- all registered `IPipelineBehavior<TRequest, TResponse>` instances wrap the handler in an onion-style chain, outermost-first in registration order. Each behavior receives a `RequestHandlerDelegate<TResponse> next` and decides whether to call it.
-3. **Handler** -- the single `IRequestHandler<TRequest, TResponse>` executes.
-4. **Post-processors** -- all registered `IRequestPostProcessor<TRequest, TResponse>` instances run sequentially in registration order, receiving both the request and the response.
+3. **Handler** -- the single `IRequestHandler<TRequest, TResponse>` is resolved and executes. If no handler is registered, it throws `InvalidOperationException` with a message naming the missing registration.
+4. **Post-processors** -- all registered `IRequestPostProcessor<TRequest, TResponse>` instances run sequentially in registration order, inside the innermost behavior, receiving both the request and the response.
 
 If any stage throws, execution transfers to the [exception processing flow](#exception-processing-flow).
 
-**Step 3 -- Request Dispatcher.** `RequestDispatcher<TResponse>` resolves the handler from the DI container and invokes it through a cached, expression-compiled delegate. If no handler is registered, it throws `InvalidOperationException` with a diagnostic message naming the missing registration.
+When there are no pre-processors, behaviors, or post-processors, the runtime calls the handler directly. When the pipeline completes synchronously, its task is returned as is, without an extra async state machine.
 
 ### Pipeline Construction
 
-The pipeline executor builds the behavior chain by iterating behaviors in reverse registration order. Each behavior wraps the next delegate:
+The behavior chain is built per call. Each behavior receives a `next` delegate bound to the position after it; calling it invokes the next behavior, or the handler and post-processors after the last behavior:
 
 ```csharp
-// Conceptual pipeline assembly (from RequestPipelineExecutor)
-RequestHandlerDelegate<TResponse> current = async () =>
+// Conceptual chain for one call
+Task<TResponse> InvokeAt(int index, CancellationToken token)
 {
-    TResponse response = await handler();
-
-    foreach (IRequestPostProcessor<TRequest, TResponse> postProcessor in postProcessors)
+    if (index == behaviors.Length)
     {
-        await postProcessor.Process(request, response, cancellationToken);
+        return HandlerThenPostProcessors(token);
     }
 
-    return response;
-};
+    RequestHandlerDelegate<TResponse> next =
+        nextToken => InvokeAt(index + 1, nextToken == default ? token : nextToken);
 
-// Wrap behaviors outermost-first
-for (int index = behaviors.Count - 1; index >= 0; index--)
-{
-    IPipelineBehavior<TRequest, TResponse> behavior = behaviors[index];
-    RequestHandlerDelegate<TResponse> next = current;
-    current = () => behavior.Handle(request, next, cancellationToken);
+    return behaviors[index].Handle(request, next, token);
 }
 ```
 
-The first registered behavior becomes the outermost wrapper. A behavior can short-circuit by returning a response without calling `next()`.
+The first registered behavior becomes the outermost wrapper. A behavior can short-circuit by returning a response without calling `next()`, and can call `next` more than once to run the rest of the pipeline again.
+
+### Cancellation Tokens in the Pipeline
+
+The caller's token reaches pre-processors and the outermost behavior. A behavior that calls `next(token)` gives that token to every inner behavior, the handler, and the post-processors. Calling `next()` or `next(default)` keeps the token the behavior received.
 
 ## Void Request Dispatch
 
-`IRequest` (no response payload) extends `IRequest<Unit>`. When you call `mediator.Send(request)` with a void request, the runtime routes through `VoidRequestPipelineDispatcher` instead of the generic `RequestPipelineDispatcher<TResponse>`.
-
-Internally, void dispatch reuses the same `RequestPipelineExecutor<TRequest, Unit>` pipeline. The terminal handler delegate calls `VoidRequestDispatcher`, which resolves `IRequestHandler<TRequest>` (single type parameter overload) and wraps the result as `Unit.Value`:
+`IRequest` (no response payload) extends `IRequest<Unit>`. `Send(IRequest)` dispatches through `Send<Unit>`, which uses `VoidRequestInvoker<TRequest>` for any request that implements `IRequest`:
 
 ```
 Mediator.Send(IRequest)
-  --> VoidRequestPipelineDispatcher.Dispatch()
-    --> RequestPipelineExecutor<TRequest, Unit>.Execute()
-      --> VoidRequestDispatcher.Dispatch()
+  --> Mediator.Send<Unit>()
+    --> VoidRequestInvoker<TRequest>.Invoke()
+      --> RequestPipeline<TRequest, Unit>.Execute()  // resolves IRequestHandler<TRequest>
 ```
 
-This means void requests participate in the same pre-processor, behavior, post-processor, and exception handling pipeline as response-bearing requests.
+Void requests participate in the same pre-processor, behavior, post-processor, and exception handling pipeline as response-bearing requests, with `Unit` as the response type. A void request sent through `Send<Unit>` or held as an `IRequest<Unit>` is dispatched the same way, to `IRequestHandler<TRequest>`, and returns `Unit.Value`.
 
-Because `IRequest` extends `IRequest<Unit>`, a void request can also reach the generic overload, such as when it is held as an `IRequest<Unit>`, sent with `Send<Unit>`, or forwarded by a generic wrapper. `RequestPipelineDispatcher<Unit>` detects requests that implement `IRequest` and dispatches them the same way as `Send(IRequest)`: through the `Unit` pipeline to `IRequestHandler<TRequest>`, returning `Unit.Value`. Requests that implement only `IRequest<Unit>` are ordinary response-bearing requests and still use `IRequestHandler<TRequest, Unit>`.
+Requests that implement only `IRequest<Unit>` are ordinary response-bearing requests and use `IRequestHandler<TRequest, Unit>`. A request that implements `IRequest` is never dispatched to `IRequestHandler<TRequest, Unit>`; `AddMediator` rejects that registration, and the missing-handler error names the interface to implement.
 
 ## Stream Dispatch Lifecycle
 
@@ -78,12 +75,12 @@ When you call `mediator.CreateStream(request)`, the runtime follows a parallel d
 
 ```
 Mediator.CreateStream<TResponse>()
-  --> StreamRequestPipelineDispatcher<TResponse>.Dispatch()
-    --> StreamRequestPipelineExecutor<TRequest, TResponse>.Execute()
-      --> StreamRequestDispatcher<TResponse>.Dispatch()
+  --> StreamInvoker<TResponse>.Get(request.GetType())
+    --> StreamInvoker<TRequest, TResponse>.Invoke()
+      --> StreamRequestPipeline<TRequest, TResponse>.Execute()
 ```
 
-The stream pipeline executor runs:
+`CreateStream` returns immediately. Each enumeration of the returned stream runs:
 
 1. **Pre-processors** -- all registered `IRequestPreProcessor<TRequest>` instances, sequentially.
 2. **Stream pipeline behaviors** -- all registered `IStreamPipelineBehavior<TRequest, TResponse>` instances, wrapped outermost-first. Each behavior receives a `StreamHandlerDelegate<TResponse> next` that returns `IAsyncEnumerable<TResponse>`.
@@ -92,6 +89,8 @@ The stream pipeline executor runs:
 ::: info No post-processors for streams
 Stream requests do not execute `IRequestPostProcessor`. Post-processing applies only to `Send()` dispatch.
 :::
+
+The scope that resolved the mediator must outlive the whole enumeration, because the handler and behaviors are resolved when enumeration starts.
 
 ### Cancellation Token Linking
 
@@ -109,30 +108,19 @@ Stream exception handling applies at two points:
 1. **During pipeline construction** -- exceptions thrown by pre-processors or stream behaviors while building the initial stream.
 2. **During enumeration** -- exceptions thrown by `GetAsyncEnumerator()`, `MoveNextAsync()`, or `Current` as the consumer iterates the stream.
 
-At both points, the runtime follows the same [exception processing flow](#exception-processing-flow), but uses `IStreamRequestExceptionHandler<TRequest, TResponse, TException>` instead of request exception handlers. A handled stream exception replaces the active stream with the handler's fallback `IAsyncEnumerable<TResponse>`, and enumeration continues from the replacement stream.
+At both points, the runtime follows the same [exception processing flow](#exception-processing-flow), but uses `IStreamRequestExceptionHandler<TRequest, TResponse, TException>` instead of request exception handlers. A handled stream exception replaces the active stream with the handler's fallback `IAsyncEnumerable<TResponse>`, and enumeration continues from the replacement stream. Items already yielded are not replayed.
 
-If an exception occurs mid-enumeration and a handler provides a replacement stream, the runtime disposes the faulted enumerator and switches to the new stream seamlessly.
+When enumeration fails, the runtime disposes the failed enumerator **before** it calls the exception handlers, so a replacement stream can reopen the same resource. If that disposal throws, the runtime does not attempt a replacement: exception actions run, and it throws `MediatorExceptionProcessingException` with the enumeration failure as `InnerException` and the disposal failure in `ProcessingExceptions`.
 
-Exception handlers can replace a stream one time only for each `CreateStream` call. If the replacement stream also throws, the runtime does not call the exception handlers again. The exception actions run, and the exception propagates to the consumer. This rule prevents an infinite recovery loop, for example when a canceled token makes each replacement stream fail.
+Exception handlers can replace a stream one time only per enumeration. If the replacement stream also throws, the runtime does not call the exception handlers again. The exception actions run, and the exception propagates to the consumer. This rule prevents an infinite recovery loop.
 
-Exceptions from `DisposeAsync()` on an enumerator do not go through stream exception handlers or exception actions. The runtime propagates them to the consumer. If enumeration has already failed, the disposal exception replaces the original exception.
-
-## Covariant Response Views
-
-`IRequest<out TResponse>` and `IStreamRequest<out TResponse>` are covariant, so a request that declares `IRequest<string>` can be passed where an `IRequest<object>` is expected. When the `TResponse` at the call site is not a response type the request declares, the pipeline dispatcher finds the declared response type that the caller's view is covariant with and dispatches through it:
-
-```csharp
-IRequest<object> query = new GetUserNameQuery(42); // declares IRequest<string>
-object name = await mediator.Send(query);           // runs IRequestHandler<GetUserNameQuery, string>
-```
-
-The request runs through the handler, behaviors, processors, and exception handlers registered for the declared response type (`string` above), and the result is returned as the caller's type. The same applies to `CreateStream`, where each item is returned as the caller's type. Derived-to-base views, such as sending a request that declares `IRequest<Dog>` as `IRequest<Animal>`, work the same way.
-
-If a request declares more than one response type that the caller's view is covariant with, such as `IRequest<string>` and `IRequest<Uri>` sent as `IRequest<object>`, dispatch throws `InvalidOperationException`. Send it with the exact response type of the handler you want to run.
+Exceptions from `DisposeAsync()` on an enumerator that completed, or that the consumer stopped early, do not go through stream exception handlers or exception actions. The runtime propagates them to the consumer.
 
 ## Notification Publishing
 
-`Mediator.Publish<TNotification>()` resolves all registered `INotificationHandler<T>` instances for the notification's concrete runtime type from the DI container and delegates to an `INotificationPublisher` strategy. Publishing through an `INotification`, base-class, or generic reference reaches the same handlers as publishing the concrete type directly. Handlers registered only for the interface or base type are not invoked.
+`Mediator.Publish<TNotification>()` resolves all registered `INotificationHandler<T>` instances for the notification's concrete runtime type from the DI container and passes them to an `INotificationPublisher` strategy. Publishing through an `INotification`, base-class, or generic reference reaches the same handlers as publishing the concrete type directly. When the static type is sealed, a value type, or already the runtime type, no lookup is needed; otherwise a cached `NotificationInvoker<TNotification>` bridges to the concrete type.
+
+Handlers registered only for an interface or base type are not invoked for a derived notification. `AddMediator` rejects handlers closed over an interface or abstract notification type; use a constrained open generic instead (see [Dependency Injection](/guide/dependency-injection#components-for-an-interface-or-base-message-type)).
 
 If no handlers are registered, publish completes immediately as a no-op.
 
@@ -141,9 +129,9 @@ If no handlers are registered, publish completes immediately as a no-op.
 | Strategy | Class | Behavior |
 |---|---|---|
 | **Sequential** (default) | `ForeachAwaitPublisher` | Awaits each handler one at a time, in registration order. A handler exception stops subsequent handlers. |
-| **Parallel** | `TaskWhenAllPublisher` | Starts all handlers concurrently, then awaits `Task.WhenAll`. All handlers execute even if one faults, including a handler that throws synchronously before returning a task; the publish task faults only after every started handler finishes. |
+| **Parallel** | `TaskWhenAllPublisher` | Reads the whole handler sequence, then starts all handlers concurrently and awaits `Task.WhenAll`. All handlers execute even if one faults, including a handler that throws synchronously before returning a task; the publish task faults only after every started handler finishes. If reading the handler sequence fails, no handler starts and the returned task is faulted. |
 
-`TaskWhenAllPublisher` includes fast paths: zero handlers return `Task.CompletedTask`, a single handler executes without creating a `Task[]` array.
+`TaskWhenAllPublisher` includes fast paths: zero handlers return `Task.CompletedTask`, a single handler executes without creating a `Task[]` array. Parallel handlers share the scope they were resolved from.
 
 ### Custom Publishers
 
@@ -166,13 +154,15 @@ Notifications do not participate in the request pipeline. There are no pre-proce
 
 ## Exception Processing Flow
 
-When any stage of request or stream pipeline execution throws, the runtime applies a two-phase exception processing sequence.
+When any stage of request or stream pipeline execution throws, the runtime applies a two-phase exception processing sequence. A missing handler goes through the same flow.
 
 ### Phase 1 -- Exception Handlers
 
-The runtime walks the exception type hierarchy from **most specific to least specific** by following each type's `BaseType`. For a thrown `FileNotFoundException`, it checks handlers registered for `FileNotFoundException`, then `IOException`, then `SystemException`, then `Exception`. Only types in the thrown exception's actual inheritance chain are checked: `HttpRequestException` derives directly from `Exception`, so an `IOException` handler never sees it.
+If the caller's token is canceled and the exception is an `OperationCanceledException`, this phase is skipped: the caller's cancellation is never turned into a response. For streams, the enumeration's token is used.
 
-For each exception type in the hierarchy, it resolves all registered `IRequestExceptionHandler<TRequest, TResponse, TException>` instances (or `IStreamRequestExceptionHandler<TRequest, TResponse, TException>` for streams) and invokes them in sequence.
+Otherwise the runtime walks the exception type hierarchy from **most specific to least specific** by following each type's `BaseType`. For a thrown `FileNotFoundException`, it checks handlers registered for `FileNotFoundException`, then `IOException`, then `SystemException`, then `Exception`. Only types in the thrown exception's actual inheritance chain are checked: `HttpRequestException` derives directly from `Exception`, so an `IOException` handler never sees it.
+
+For each exception type in the hierarchy, it resolves all registered `IRequestExceptionHandler<TRequest, TResponse, TException>` instances (or `IStreamRequestExceptionHandler<TRequest, TResponse, TException>` for streams) and invokes them in sequence. Each implementation runs at most once per exception, at the most specific level it matches. A generic implementation, such as an open generic the container closed at every level, counts as one implementation.
 
 The first handler to call `state.SetHandled(response)` wins. The runtime returns the recovery response immediately and skips all remaining handlers and actions.
 
@@ -186,16 +176,22 @@ The first handler to call `state.SetHandled(response)` wins. The runtime returns
 
 ### Phase 2 -- Exception Actions
 
-If no handler marks the exception as handled, the runtime executes all registered `IRequestExceptionAction<TRequest, TException>` instances. Actions follow the same most-specific-first hierarchy ordering. Actions are side-effect-only hooks for logging, metrics, or auditing.
+If no handler marks the exception as handled, the runtime executes all registered `IRequestExceptionAction<TRequest, TException>` instances. Actions follow the same most-specific-first ordering and the same once-per-implementation rule. Actions are side-effect-only hooks for logging, metrics, or auditing. Every action runs, even when an earlier one throws.
 
-After all actions execute, the runtime rethrows the original exception using `ExceptionDispatchInfo.Capture(exception).Throw()`, preserving the original stack trace.
+After all actions execute, the runtime rethrows the original exception using `ExceptionDispatchInfo`, preserving the original instance and stack trace.
+
+### Failures During Processing
+
+If an exception handler throws, an exception action throws, resolving them throws, or a failed stream's cleanup throws, the runtime throws `MediatorExceptionProcessingException` after running every action. Its `InnerException` is the original exception and `ProcessingExceptions` lists the failures. A failing exception handler counts as unhandled, so actions still run for the original exception.
 
 ### Exception Processing Summary
 
 ```
 Exception thrown
   |
-  +--> Exception Handlers (most specific type first)
+  +--> Caller canceled? --YES--> skip handlers
+  |
+  +--> Exception Handlers (most specific type first, each implementation once)
   |      |
   |      +--> state.SetHandled(response) called?
   |             YES --> return recovery response (done)
@@ -203,65 +199,65 @@ Exception thrown
   |
   +--> No handler handled it
   |
-  +--> Exception Actions (most specific type first, all execute)
+  +--> Exception Actions (most specific type first, each implementation once, all execute)
   |
-  +--> Rethrow original exception (stack trace preserved)
+  +--> Any handler or action failed?
+         YES --> throw MediatorExceptionProcessingException (original as InnerException)
+         NO  --> rethrow original exception (stack trace preserved)
 ```
 
 ## Dispatch Caching
 
-Every dispatcher in the runtime (`RequestPipelineDispatcher`, `RequestDispatcher`, `VoidRequestPipelineDispatcher`, `VoidRequestDispatcher`, `StreamRequestPipelineDispatcher`, `StreamRequestDispatcher`) uses the same caching pattern to eliminate per-call reflection.
+The runtime keeps one typed invoker per concrete message type and dispatches through it, with no expression trees and no per-call reflection.
 
 ### How It Works
 
-1. **First call for a concrete request type** -- the dispatcher uses `System.Linq.Expressions` to build an expression tree that casts the request and handler to their concrete types and calls the appropriate method. It compiles this expression into a delegate.
-2. **Cache storage** -- the compiled delegate is stored in a `static ConcurrentDictionary<Type, TDelegate>` keyed by the concrete request runtime type.
-3. **Subsequent calls** -- `ConcurrentDictionary.GetOrAdd` returns the cached delegate. No reflection occurs.
-
-This applies at two levels per dispatch:
-
-- **Pipeline dispatch delegates** -- map `IRequest<TResponse>` to the closed `DispatchTyped<TRequest>` method.
-- **Handler invocation delegates** -- map a resolved `object` handler to a strongly-typed `Handle` method call with the correct cast.
+1. **Registered ahead of time** -- the explicit registration methods (`AddRequestHandler`, `AddStreamRequestHandler`, `AddNotificationHandler`) call `MediatorRegistry`, which stores a statically created invoker for the message type. This is what makes dispatch work under Native AOT.
+2. **Created on first use** -- for a message type that was not registered, the first call creates the closed invoker with `MakeGenericType` and `Activator.CreateInstance`. This needs runtime code generation; without it, as under Native AOT, the runtime throws an `InvalidOperationException` naming the registration to add.
+3. **Subsequent calls** -- a `ConcurrentDictionary` lookup keyed by `request.GetType()` returns the invoker. The factory may run more than once if several threads hit the same new type at the same time; one result is kept.
 
 ### What Gets Cached
 
 | Cache | Keyed By | Stores |
 |---|---|---|
-| `RequestPipelineDispatcher<TResponse>` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>`, `DispatchCovariant<TRequest, TDeclaredResponse>` for a [covariant view](#covariant-response-views), or the void pipeline for a [void request sent as `IRequest<Unit>`](#void-request-dispatch) |
-| `RequestDispatcher<TResponse>` | Concrete request type | Compiled handler invoker + service resolution |
-| `VoidRequestPipelineDispatcher` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>` |
-| `VoidRequestDispatcher` | Concrete request type | Compiled handler invoker + service resolution |
-| `StreamRequestPipelineDispatcher<TResponse>` | Concrete request type | Compiled delegate calling `DispatchTyped<TRequest>`, or `DispatchCovariant<TRequest, TDeclaredResponse>` for a [covariant view](#covariant-response-views) |
-| `StreamRequestDispatcher<TResponse>` | Concrete request type | Compiled handler invoker + service resolution |
+| `RequestInvoker<TResponse>` | Concrete request type | `RequestInvoker<TRequest, TResponse>`, or `VoidRequestInvoker<TRequest>` for a void request |
+| `StreamInvoker<TResponse>` | Concrete stream request type | `StreamInvoker<TRequest, TResponse>` |
+| `NotificationInvoker` | Concrete notification type | `NotificationInvoker<TNotification>`, used only when the static type differs from the runtime type |
+| `RequestExceptionProcessor<TRequest, TResponse>` | Exception type | One handler invoker per level of the exception hierarchy |
+| `StreamRequestExceptionProcessor<TRequest, TResponse>` | Exception type | One stream handler invoker per level of the exception hierarchy |
+| `ExceptionActionProcessor<TRequest>` | Exception type | One action invoker per level of the exception hierarchy |
 
-Exception handler and action invokers are also cached per exception type in `ConcurrentDictionary` instances on `RequestExceptionProcessor` and `StreamRequestExceptionProcessor`.
+Handlers, behaviors, and other components are never cached. They are resolved from the service provider on every call, so lifetimes and scopes behave as registered.
 
 ### Cache Lifetime
 
-All caches use `static` fields on generic types. They live for the lifetime of the application domain and are never evicted. This is safe because the set of concrete request types in an application is fixed at compile time.
+All caches use `static` fields on generic types. They live for the lifetime of the process and are never evicted. Invokers are stateless and receive the `IServiceProvider` on each call, so sharing them across `Mediator` instances and containers is safe.
 
 ::: warning
-Because caches are static, they are shared across all `Mediator` instances in the same process. This is intentional and correct -- the compiled delegates are stateless and receive the `IServiceProvider` as a parameter on each call.
+Because caches are never evicted, they keep a reference to every message type dispatched. Apps that load and unload message types from collectible `AssemblyLoadContext`s cannot unload those assemblies after dispatching their messages.
 :::
 
 ## Internal Type Map
 
 The table below maps each public API method to its internal dispatch chain.
 
-| Public Method | Pipeline Dispatcher | Pipeline Executor | Handler Dispatcher |
+| Public Method | Invoker | Pipeline | Handler |
 |---|---|---|---|
-| `Send<TResponse>(IRequest<TResponse>)` | `RequestPipelineDispatcher<TResponse>` | `RequestPipelineExecutor<TRequest, TResponse>` | `RequestDispatcher<TResponse>` |
-| `Send(IRequest)` | `VoidRequestPipelineDispatcher` | `RequestPipelineExecutor<TRequest, Unit>` | `VoidRequestDispatcher` |
-| `Send<Unit>(IRequest<Unit>)` with a void request | `RequestPipelineDispatcher<Unit>` --> `VoidRequestPipelineDispatcher` | `RequestPipelineExecutor<TRequest, Unit>` | `VoidRequestDispatcher` |
-| `CreateStream<TResponse>(IStreamRequest<TResponse>)` | `StreamRequestPipelineDispatcher<TResponse>` | `StreamRequestPipelineExecutor<TRequest, TResponse>` | `StreamRequestDispatcher<TResponse>` |
-| `Publish<TNotification>(TNotification)` | -- | -- | `INotificationPublisher` strategy |
+| `Send<TResponse>(IRequest<TResponse>)` | `RequestInvoker<TRequest, TResponse>` | `RequestPipeline<TRequest, TResponse>` | `IRequestHandler<TRequest, TResponse>` |
+| `Send(IRequest)` | `VoidRequestInvoker<TRequest>` | `RequestPipeline<TRequest, Unit>` | `IRequestHandler<TRequest>` |
+| `Send<Unit>(IRequest<Unit>)` with a void request | `VoidRequestInvoker<TRequest>` | `RequestPipeline<TRequest, Unit>` | `IRequestHandler<TRequest>` |
+| `CreateStream<TResponse>(IStreamRequest<TResponse>)` | `StreamInvoker<TRequest, TResponse>` | `StreamRequestPipeline<TRequest, TResponse>` | `IStreamRequestHandler<TRequest, TResponse>` |
+| `Publish<TNotification>(TNotification)` | `NotificationInvoker<TNotification>` (only for a less specific static type) | -- | `INotificationPublisher` strategy |
 
 ## Error Conditions
 
 | Condition | Exception | When |
 |---|---|---|
-| No handler registered for request type | `InvalidOperationException` | At dispatch time, when the DI container returns `null` for the handler service type |
-| No handler registered for stream request type | `InvalidOperationException` | At dispatch time (same as above) |
-| Request declares more than one response type compatible with the caller's covariant view | `InvalidOperationException` | On the first `Send` or `CreateStream` call for that request type and view |
+| No handler registered for request type | `InvalidOperationException` | At dispatch time, when the DI container returns `null` for the handler service type. Exception actions run first. |
+| No handler registered for stream request type | `InvalidOperationException` | When enumeration starts |
+| Message type not registered and runtime code generation unavailable (Native AOT) | `InvalidOperationException` | On the first `Send`, `CreateStream`, or `Publish` for that type |
+| Exception handler, exception action, or failed-stream cleanup throws | `MediatorExceptionProcessingException` | After every exception action has run |
 | `null` request or notification argument | `ArgumentNullException` | Immediately on `Send`, `CreateStream`, or `Publish` call |
 | `null` service provider | `ArgumentNullException` | At `Mediator` construction |
+
+Registration problems, such as duplicate handlers, are reported by `AddMediator` at startup. See [Dependency Injection](/guide/dependency-injection#registration-errors).

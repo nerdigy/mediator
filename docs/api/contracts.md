@@ -81,10 +81,10 @@ You do not implement `IBaseRequest` directly. Use `IRequest<TResponse>`, `IReque
 
 ### IRequest\<TResponse\>
 
-A request that expects a typed response. Each request type must have exactly one corresponding handler.
+A request that expects a typed response. Each request type must have exactly one corresponding handler. The interface is not covariant: send a request with the response type it declares.
 
 ```csharp
-public interface IRequest<out TResponse> : IBaseRequest;
+public interface IRequest<TResponse> : IBaseRequest;
 ```
 
 **Usage:**
@@ -112,7 +112,7 @@ public sealed record DeleteUserCommand(Guid Id) : IRequest;
 A request that returns an asynchronous stream of values rather than a single response.
 
 ```csharp
-public interface IStreamRequest<out TResponse> : IBaseRequest;
+public interface IStreamRequest<TResponse> : IBaseRequest;
 ```
 
 **Usage:**
@@ -139,14 +139,18 @@ public sealed record UserCreatedEvent(Guid UserId) : INotification;
 
 ## Handler Interfaces
 
-One handler per message type. The assembly scanner auto-registers these when you call `AddMediator(...)`.
+One handler per request type, and any number per notification type. The assembly scanner registers these when you call `AddMediator(...)`, or register them explicitly with `AddRequestHandler`, `AddStreamRequestHandler`, and `AddNotificationHandler`.
+
+::: info No variance
+Handler and pipeline interfaces declare no `in` or `out` variance, because the mediator resolves components for a message's exact runtime type. A handler or component closed over an interface or abstract message type would never run, so `AddMediator` rejects it. Use an open generic constrained to the interface instead.
+:::
 
 ### IRequestHandler\<TRequest, TResponse\>
 
 Handles a request and returns a response.
 
 ```csharp
-public interface IRequestHandler<in TRequest, TResponse>
+public interface IRequestHandler<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     Task<TResponse> Handle(TRequest request, CancellationToken cancellationToken);
@@ -170,7 +174,7 @@ public sealed class GetUserHandler : IRequestHandler<GetUserQuery, UserDto>
 Handles a void request. No return value.
 
 ```csharp
-public interface IRequestHandler<in TRequest>
+public interface IRequestHandler<TRequest>
     where TRequest : IRequest
 {
     Task Handle(TRequest request, CancellationToken cancellationToken);
@@ -195,7 +199,7 @@ public sealed class DeleteUserHandler : IRequestHandler<DeleteUserCommand>
 Handles a stream request and yields an asynchronous sequence of values.
 
 ```csharp
-public interface IStreamRequestHandler<in TRequest, out TResponse>
+public interface IStreamRequestHandler<TRequest, TResponse>
     where TRequest : IStreamRequest<TResponse>
 {
     IAsyncEnumerable<TResponse> Handle(TRequest request, CancellationToken cancellationToken);
@@ -224,7 +228,7 @@ public sealed class ReadEventsHandler : IStreamRequestHandler<ReadEventsRequest,
 Handles a published notification. Multiple handlers can be registered for the same notification type.
 
 ```csharp
-public interface INotificationHandler<in TNotification>
+public interface INotificationHandler<TNotification>
     where TNotification : INotification
 {
     Task Handle(TNotification notification, CancellationToken cancellationToken);
@@ -259,7 +263,7 @@ Pipeline components wrap or augment request handling. They execute in registrati
 Runs before the handler and all pipeline behaviors. Use for validation, logging, or enrichment.
 
 ```csharp
-public interface IRequestPreProcessor<in TRequest>
+public interface IRequestPreProcessor<TRequest>
     where TRequest : IBaseRequest
 {
     Task Process(TRequest request, CancellationToken cancellationToken);
@@ -273,7 +277,7 @@ The `IBaseRequest` constraint means pre-processors apply to both standard reques
 Middleware for request handling. Wraps the handler call and can inspect, modify, or short-circuit the request.
 
 ```csharp
-public interface IPipelineBehavior<in TRequest, TResponse>
+public interface IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     Task<TResponse> Handle(
@@ -283,7 +287,7 @@ public interface IPipelineBehavior<in TRequest, TResponse>
 }
 ```
 
-Call `await next()` to invoke the next behavior or the handler itself. Return without calling `next` to short-circuit.
+Call `await next()` to invoke the next behavior or the handler itself, or `await next(token)` to pass a different cancellation token down the pipeline. Return without calling `next` to short-circuit.
 
 **Usage:**
 
@@ -298,7 +302,7 @@ public sealed class LoggingBehavior<TRequest, TResponse>
         CancellationToken cancellationToken)
     {
         // before handler
-        TResponse response = await next();
+        TResponse response = await next(cancellationToken);
         // after handler
         return response;
     }
@@ -310,7 +314,7 @@ public sealed class LoggingBehavior<TRequest, TResponse>
 Middleware for stream request handling. Same wrapping pattern as `IPipelineBehavior`, but operates on `IAsyncEnumerable<TResponse>`.
 
 ```csharp
-public interface IStreamPipelineBehavior<in TRequest, TResponse>
+public interface IStreamPipelineBehavior<TRequest, TResponse>
     where TRequest : IStreamRequest<TResponse>
 {
     IAsyncEnumerable<TResponse> Handle(
@@ -325,7 +329,7 @@ public interface IStreamPipelineBehavior<in TRequest, TResponse>
 Runs after the handler completes successfully. Receives both the request and the response. Use for auditing, caching, or metrics.
 
 ```csharp
-public interface IRequestPostProcessor<in TRequest, in TResponse>
+public interface IRequestPostProcessor<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     Task Process(TRequest request, TResponse response, CancellationToken cancellationToken);
@@ -339,7 +343,7 @@ public interface IRequestPostProcessor<in TRequest, in TResponse>
 Exception components run when the pipeline throws. Handlers can recover by providing a fallback response; actions perform side effects before the exception is rethrown.
 
 ::: info Exception Evaluation Order
-Exception handlers and actions are evaluated from **most specific** exception type to **least specific** (`InvalidOperationException` before `Exception`). The first handler that calls `state.SetHandled(...)` wins. If no handler recovers, actions run and the original exception is rethrown with its stack trace preserved.
+Exception handlers and actions are evaluated from **most specific** exception type to **least specific** (`InvalidOperationException` before `Exception`), and each implementation runs at most once per exception, at the most specific level it matches. The first handler that calls `state.SetHandled(...)` wins. If no handler recovers, actions run and the original exception is rethrown with its stack trace preserved. Handlers are skipped when the caller's token was canceled. If a handler or action throws, `MediatorExceptionProcessingException` is thrown instead.
 :::
 
 ### IRequestExceptionHandler\<TRequest, TResponse, TException\>
@@ -347,7 +351,7 @@ Exception handlers and actions are evaluated from **most specific** exception ty
 Intercepts an exception and can recover by supplying a fallback response.
 
 ```csharp
-public interface IRequestExceptionHandler<in TRequest, TResponse, in TException>
+public interface IRequestExceptionHandler<TRequest, TResponse, TException>
     where TRequest : IRequest<TResponse>
     where TException : Exception
 {
@@ -366,7 +370,7 @@ Call `state.SetHandled(response)` to suppress the exception and return `response
 Intercepts an exception thrown during stream enumeration and can recover by supplying a replacement stream.
 
 ```csharp
-public interface IStreamRequestExceptionHandler<in TRequest, TResponse, in TException>
+public interface IStreamRequestExceptionHandler<TRequest, TResponse, TException>
     where TRequest : IStreamRequest<TResponse>
     where TException : Exception
 {
@@ -385,7 +389,7 @@ Call `state.SetHandled(replacementStream)` to suppress the exception and yield t
 Performs side effects (logging, metrics, alerting) when an exception occurs. Actions cannot recover the exception -- they run after exception handlers and before rethrow.
 
 ```csharp
-public interface IRequestExceptionAction<in TRequest, in TException>
+public interface IRequestExceptionAction<TRequest, TException>
     where TRequest : IBaseRequest
     where TException : Exception
 {
@@ -438,20 +442,20 @@ These delegates represent the "next step" in a pipeline. Pipeline behaviors rece
 The next delegate in a request pipeline.
 
 ```csharp
-public delegate Task<TResponse> RequestHandlerDelegate<TResponse>();
+public delegate Task<TResponse> RequestHandlerDelegate<TResponse>(CancellationToken cancellationToken = default);
 ```
 
-Invoke with `await next()` inside an `IPipelineBehavior<TRequest, TResponse>`.
+Invoke with `await next()` inside an `IPipelineBehavior<TRequest, TResponse>`. Pass a token, as in `await next(timeoutToken)`, to give the inner behaviors, the handler, and the post-processors that token instead. `next()` and `next(default)` keep the token the behavior received.
 
 ### StreamHandlerDelegate\<TResponse\>
 
 The next delegate in a stream request pipeline.
 
 ```csharp
-public delegate IAsyncEnumerable<TResponse> StreamHandlerDelegate<TResponse>();
+public delegate IAsyncEnumerable<TResponse> StreamHandlerDelegate<TResponse>(CancellationToken cancellationToken = default);
 ```
 
-Invoke with `next()` inside an `IStreamPipelineBehavior<TRequest, TResponse>`.
+Invoke with `next()` inside an `IStreamPipelineBehavior<TRequest, TResponse>`, or `next(token)` to pass a different token to the inner behaviors and the handler.
 
 ---
 
@@ -464,8 +468,30 @@ A void-like struct used as the `TResponse` type for requests that produce no val
 ```csharp
 public readonly struct Unit : IEquatable<Unit>
 {
-    public static readonly Unit Value = default;
+    public static readonly Unit Value;
 }
 ```
 
 You do not interact with `Unit` directly in most application code. Implement `IRequest` and `IRequestHandler<TRequest>` instead of working with `IRequest<Unit>` and `IRequestHandler<TRequest, Unit>`.
+
+---
+
+## Exceptions
+
+### MediatorExceptionProcessingException
+
+Thrown when an exception handler, an exception action, or cleanup of a failed stream throws while the mediator is processing another exception. The original exception is never lost.
+
+```csharp
+public sealed class MediatorExceptionProcessingException : Exception
+{
+    public MediatorExceptionProcessingException(
+        Exception originalException,
+        IReadOnlyList<Exception> processingExceptions);
+
+    public IReadOnlyList<Exception> ProcessingExceptions { get; }
+}
+```
+
+- **`InnerException`** -- the exception the request originally failed with.
+- **`ProcessingExceptions`** -- the exceptions thrown while processing it. Every exception action still runs when an earlier one fails.

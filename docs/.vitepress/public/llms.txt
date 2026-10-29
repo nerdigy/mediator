@@ -8,12 +8,16 @@
 - [/guide/decision-matrix] Fast contract and dispatch selection (`Send`, `Publish`, `CreateStream`).
 - [/guide/recipes] Copy-ready implementation prompts by use case.
 - [/guide/getting-started] Install, register services, send first request, publish first notification.
-- [/guide/dependency-injection] `AddMediator`, assembly scanning, lifetimes, and publisher strategy setup.
+- [/guide/dependency-injection] `AddMediator`, assembly scanning, explicit registration, registration errors, lifetimes, and publisher strategy setup.
 - [/guide/requests] Request/response and void request patterns.
 - [/guide/notifications] Notification handlers, fan-out, and publisher strategy behavior.
 - [/guide/streaming] `IStreamRequest<T>` and `CreateStream` usage.
 - [/guide/pipelines] Pre-processors, behaviors, post-processors, and ordering.
 - [/guide/exception-handling] Exception handlers/actions and recovery semantics.
+- [/guide/performance] Dispatch path, cold start vs. warm path, and benchmarks.
+- [/guide/native-aot] Explicit registration and limitations under Native AOT and trimming.
+- [/guide/observability] Activity source, meter, instruments, and tags.
+- [/guide/migrating-to-v2] Breaking changes from 1.x and how to upgrade.
 - [/guide/troubleshooting] Symptom to fix mapping for common failures.
 - [/api/cheatsheet] Signature-first API summary for quick generation.
 - [/api/contracts] Full contracts reference from `Nerdigy.Mediator.Contracts`.
@@ -22,5 +26,5 @@
 ## Packages
 
 - `Nerdigy.Mediator.Contracts`: contracts and delegates only.
-- `Nerdigy.Mediator`: core runtime and dispatch pipeline.
-- `Nerdigy.Mediator.DependencyInjection`: DI registration and assembly scanning.
+- `Nerdigy.Mediator`: core runtime, dispatch pipeline, tracing and metrics.
+- `Nerdigy.Mediator.DependencyInjection`: DI registration, assembly scanning or explicit registration, startup validation.

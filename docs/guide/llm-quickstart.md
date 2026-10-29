@@ -7,20 +7,26 @@ This page is optimized for copy/paste use with coding assistants. The goal is to
 Use this block as the first message to your LLM before asking for code:
 
 ```text
-You are implementing mediator-based application code using Nerdigy.Mediator on .NET 10.
+You are implementing mediator-based application code using Nerdigy.Mediator 2.x on .NET 10.
 
 Use these packages:
 - Nerdigy.Mediator.Contracts (contracts)
-- Nerdigy.Mediator.DependencyInjection (DI registration and scanning)
+- Nerdigy.Mediator.DependencyInjection (DI registration: scanning or explicit)
 
 Use these namespaces:
 - Nerdigy.Mediator.Contracts
 - Nerdigy.Mediator.DependencyInjection
 
 Rules:
-- Requests: one handler per request type.
+- Requests: one handler per request type. AddMediator fails on duplicates.
+- Void requests implement IRequest and are handled by IRequestHandler<TRequest>, never IRequestHandler<TRequest, Unit>.
 - Notifications: zero to many handlers.
 - Streams: use IStreamRequest<T> and IStreamRequestHandler<TRequest, T>.
+- Send requests with their declared response type; IRequest<T> is not covariant.
+- Behaviors call next(cancellationToken); next(otherToken) passes a different token down.
+- Never close a behavior or handler over an interface message type (IPipelineBehavior<IAuditable, Unit>);
+  use an open generic constrained to the interface.
+- Options type is MediatorOptions; publisher strategy enum is NotificationPublishStrategy.
 - Respect CancellationToken in every handler.
 - Use file-scoped namespaces and public sealed types unless extensibility is required.
 - Return Task.FromResult/Task.CompletedTask when no async I/O is performed.
@@ -36,7 +42,8 @@ Create a minimal ASP.NET Core endpoint using Nerdigy.Mediator for:
 1. A query IRequest<TResponse> and IRequestHandler<TRequest,TResponse>
 2. A command IRequest and IRequestHandler<TRequest>
 3. A domain event INotification and two INotificationHandler<T>
-4. Registration with services.AddMediator(options => options.RegisterServicesFromAssemblyContaining<...>())
+4. Registration with services.AddMediator(options => options.RegisterServicesFromAssemblyContaining<...>()),
+   or explicit options.AddRequestHandler<...>() calls if the app uses Native AOT
 
 Output:
 - Complete code for Program.cs

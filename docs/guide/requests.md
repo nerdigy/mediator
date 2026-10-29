@@ -103,7 +103,9 @@ await sender.Send(new DeleteUserCommand(userId), cancellationToken);
 
 ## One Handler Per Request
 
-Nerdigy.Mediator enforces a single-handler-per-request-type constraint. The assembly scanner registers handlers with `TryAdd`, which means the first handler discovered for a given request type wins. If no handler is registered, calling `Send` throws an `InvalidOperationException` with a diagnostic message that names the missing handler type.
+Nerdigy.Mediator enforces a single-handler-per-request-type constraint. `AddMediator` fails at startup when it finds two different handlers for the same request type, whether scanned or registered explicitly. An explicitly registered handler replaces a scanned one. If no handler is registered, calling `Send` throws an `InvalidOperationException` with a message that names the missing handler type. See [Dependency Injection](/guide/dependency-injection#single-registration-one-handler-per-request-type).
+
+A void request is only dispatched to `IRequestHandler<TRequest>`. `AddMediator` rejects an `IRequestHandler<TRequest, Unit>` for a request that implements `IRequest`, because it would never run.
 
 This is by design. Requests model point-to-point dispatch -- one request, one handler, one response. If you need multiple recipients for the same message, use [notifications](/guide/notifications) instead.
 
@@ -157,7 +159,7 @@ public sealed class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Order
 ## Dispatch Behavior
 
 - **Missing handler.** Throws `InvalidOperationException` with a message identifying the unregistered request and handler types.
-- **Covariant views.** A request can be sent through a broader view of its response type, such as `IRequest<object>` for a request that declares `IRequest<string>`. The handler and pipeline registered for the declared response type run, and the result is returned as the broader type. See [Covariant Response Views](/api/runtime-behavior#covariant-response-views).
-- **Cancellation.** The `CancellationToken` passed to `Send` propagates to every pipeline component and the handler itself.
-- **Cached dispatch.** The runtime compiles dispatch delegates per concrete request type using expression trees and caches them in a `ConcurrentDictionary`. The first call for a given request type incurs a one-time compilation cost. Subsequent calls dispatch with zero reflection overhead.
+- **Exact response type.** Send a request with the response type it declares. `IRequest<TResponse>` is not covariant, so a request that declares `IRequest<string>` cannot be sent as `IRequest<object>`.
+- **Cancellation.** The `CancellationToken` passed to `Send` propagates to every pipeline component and the handler itself, unless a behavior passes a different token to `next(cancellationToken)`.
+- **Cached dispatch.** The runtime keeps one typed invoker per concrete request type, cached in a `ConcurrentDictionary`. There is no expression-tree compilation and no per-call reflection. See [Performance](/guide/performance).
 - **Pipeline integration.** Every request -- including void requests -- flows through the full pipeline: pre-processors, pipeline behaviors, the handler, and post-processors. See the [Pipelines](/guide/pipelines) guide for details.

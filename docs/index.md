@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Nerdigy.Mediator
   text: A mediator runtime for .NET 10
-  tagline: Dispatch requests, publish notifications, and stream responses through strongly-typed pipelines with expression-compiled caching that eliminates per-call reflection.
+  tagline: Dispatch requests, publish notifications, and stream responses through strongly-typed pipelines. No per-call reflection, Native AOT ready, and traced with OpenTelemetry.
   actions:
     - theme: brand
       text: Get Started
@@ -32,9 +32,15 @@ features:
   - title: Exception Recovery
     details: Catch failures with typed exception handlers that can mark exceptions as handled and supply a recovery response. Run side-effects with exception actions before rethrow.
     link: /guide/exception-handling
-  - title: Zero-Config Assembly Scanning
-    details: Call AddMediator and point it at your assemblies. Handlers, behaviors, processors, and exception components are discovered and registered automatically.
+  - title: Scanning or Explicit Registration
+    details: Point AddMediator at your assemblies, or list components explicitly. Duplicate handlers and components that could never run fail at startup.
     link: /guide/dependency-injection
+  - title: Native AOT Ready
+    details: All packages are trimming and AOT annotated. With explicit registration, a Native AOT app publishes without warnings.
+    link: /guide/native-aot
+  - title: Built-In Telemetry
+    details: Activities and metrics for every send, publish, and stream enumeration, ready for OpenTelemetry and free when nothing listens.
+    link: /guide/observability
 ---
 
 ## Minimal Example
@@ -62,7 +68,8 @@ services.AddMediator(options =>
 });
 
 await using var provider = services.BuildServiceProvider();
-var mediator = provider.GetRequiredService<IMediator>();
+await using var scope = provider.CreateAsyncScope();
+var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
 string response = await mediator.Send(new Ping("hello"));
 // response == "PONG: hello"
@@ -73,8 +80,8 @@ string response = await mediator.Send(new Ping("hello"));
 | Package                                  | Purpose                                                                                                                                               |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Nerdigy.Mediator.Contracts**           | Contracts only. `IMediator`, `ISender`, `IPublisher`, request/notification/stream interfaces, handler interfaces, pipeline and exception interfaces.  |
-| **Nerdigy.Mediator**                     | Runtime. Dispatchers with expression-compiled caching, pipeline executors, exception processors, notification publishers. No DI framework dependency. |
-| **Nerdigy.Mediator.DependencyInjection** | Registration. `AddMediator(...)`, assembly scanning, configurable service lifetimes, publisher strategy selection.                                    |
+| **Nerdigy.Mediator**                     | Runtime. Cached typed dispatch, pipeline execution, exception processing, notification publishers, tracing and metrics. No DI framework dependency.    |
+| **Nerdigy.Mediator.DependencyInjection** | Registration. `AddMediator(...)`, assembly scanning or explicit registration, startup validation, service lifetimes, publisher strategy selection.     |
 
 ## Next Steps
 
@@ -85,3 +92,4 @@ string response = await mediator.Send(new Ping("hello"));
 - **[Requests](/guide/requests)** -- Request/response patterns, void requests, and handler conventions.
 - **[Pipelines](/guide/pipelines)** -- Pre-processors, behaviors, post-processors, and execution order.
 - **[API Contracts](/api/contracts)** -- Complete interface reference for every public type in the Contracts package.
+- **[Migrating to 2.0](/guide/migrating-to-v2)** -- Breaking changes from 1.x and how to upgrade.
