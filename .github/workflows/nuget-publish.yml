@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: read
+  # Required by NuGet trusted publishing, which exchanges the workflow's OIDC token for a short-lived API key.
+  id-token: write
 
 concurrency:
   group: nuget-publish-${{ github.ref }}
@@ -25,7 +27,6 @@ jobs:
 
     env:
       NUGET_SOURCE_URL: https://api.nuget.org/v3/index.json
-      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
 
     steps:
       - name: "📥 Checkout repository"
@@ -34,18 +35,21 @@ jobs:
       - name: "🔧 Setup .NET"
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.x
+          global-json-file: global.json
 
       - name: "🏷️ Resolve package version"
         id: version
         shell: bash
+        env:
+          # Passed as data, never interpolated into the script, so the input cannot inject shell commands.
+          VERSION_INPUT: ${{ inputs.version }}
         run: |
           set -euo pipefail
 
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="${{ inputs.version }}"
+            version="${VERSION_INPUT}"
           fi
 
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
@@ -54,23 +58,14 @@ jobs:
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
           echo "Using package version: $version"
-
-      - name: "🔐 Validate NuGet API key"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${NUGET_API_KEY}" ]]; then
-            echo "NUGET_API_KEY is not set. Add it in repo settings under Secrets and variables > Actions."
-            exit 1
-          fi
 
       - name: "📦 Restore dependencies"
         run: dotnet restore Mediator.slnx
 
       - name: "🏗️ Build solution"
-        run: dotnet build Mediator.slnx --no-restore -c Release -p:Version="${{ steps.version.outputs.version }}"
+        run: dotnet build Mediator.slnx --no-restore -c Release -p:Version="${PACKAGE_VERSION}"
 
       - name: "🧪 Run unit tests"
         run: dotnet test test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj --no-build -c Release --logger "trx;LogFileName=unit-tests.trx"
@@ -95,11 +90,19 @@ jobs:
               --no-build \
               -c Release \
               -o artifacts/nuget \
-              -p:Version="${{ steps.version.outputs.version }}"
+              -p:Version="${PACKAGE_VERSION}"
           done
+
+      - name: "🔐 Log in to NuGet with trusted publishing"
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
 
       - name: "🚀 Publish packages to NuGet"
         shell: bash
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: |
           set -euo pipefail
 
@@ -120,6 +123,8 @@ jobs:
 
       - name: "🧭 Publish symbols to NuGet"
         shell: bash
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: |
           set -euo pipefail
 

@@ -10,6 +10,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build & Test
@@ -19,10 +22,16 @@ jobs:
       - name: "📥 Checkout repository"
         uses: actions/checkout@v7
 
-      - name: "🔧 Setup .NET"
+      - name: "🔧 Setup .NET 10"
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.x
+          global-json-file: global.json
+
+      - name: "🔧 Setup .NET 11 runtime"
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+          dotnet-quality: preview
 
       - name: "📦 Restore dependencies"
         run: dotnet restore Mediator.slnx
@@ -34,7 +43,57 @@ jobs:
         run: dotnet format Mediator.slnx --verify-no-changes --no-restore
 
       - name: "🧪 Run unit tests"
-        run: dotnet test test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj --no-build -c Release --logger "trx;LogFileName=unit-tests.trx"
+        run: dotnet test test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj --no-build -c Release --logger "trx;LogFileName=unit-tests.trx" --collect "XPlat Code Coverage" --results-directory artifacts/test-results
 
       - name: "🔌 Run integration tests"
-        run: dotnet test test/Nerdigy.Mediator.IntegrationTests/Nerdigy.Mediator.IntegrationTests.csproj --no-build -c Release --logger "trx;LogFileName=integration-tests.trx"
+        run: dotnet test test/Nerdigy.Mediator.IntegrationTests/Nerdigy.Mediator.IntegrationTests.csproj --no-build -c Release --logger "trx;LogFileName=integration-tests.trx" --collect "XPlat Code Coverage" --results-directory artifacts/test-results
+
+      - name: "🧪 Run tests on the .NET 11 runtime"
+        # The projects target net10.0. LatestMajor runs them on the newest installed runtime, and rolling forward to a
+        # prerelease is needed while .NET 11 is in preview.
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+          DOTNET_ROLL_FORWARD_TO_PRERELEASE: "1"
+        run: |
+          dotnet test test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj --no-build -c Release
+          dotnet test test/Nerdigy.Mediator.IntegrationTests/Nerdigy.Mediator.IntegrationTests.csproj --no-build -c Release
+
+      - name: "📦 Pack NuGet packages"
+        run: dotnet pack Mediator.slnx --no-build -c Release -o artifacts/nuget
+
+      - name: "📊 Upload coverage"
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          directory: artifacts/test-results
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: "📤 Upload test results and packages"
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            artifacts/test-results
+            artifacts/nuget
+
+  native-aot:
+    name: Native AOT smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "📥 Checkout repository"
+        uses: actions/checkout@v7
+
+      - name: "🔧 Setup .NET"
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: "🏗️ Publish with Native AOT"
+        # Trim and AOT warnings fail the publish, because TreatWarningsAsErrors is on for every project.
+        run: dotnet publish test/Nerdigy.Mediator.AotSmokeTests/Nerdigy.Mediator.AotSmokeTests.csproj -c Release -r linux-x64 -o artifacts/aot
+
+      - name: "🚀 Run the native binary"
+        run: ./artifacts/aot/Nerdigy.Mediator.AotSmokeTests
