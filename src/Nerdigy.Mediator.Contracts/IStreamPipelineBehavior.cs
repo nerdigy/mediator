@@ -5,7 +5,7 @@ namespace Nerdigy.Mediator.Contracts;
 /// </summary>
 /// <typeparam name="TRequest">The stream request type.</typeparam>
 /// <typeparam name="TResponse">The streamed response payload type.</typeparam>
-public interface IStreamPipelineBehavior<in TRequest, TResponse>
+public interface IStreamPipelineBehavior<TRequest, TResponse>
     where TRequest : IStreamRequest<TResponse>
 {
     /// <summary>

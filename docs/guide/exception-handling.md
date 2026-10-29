@@ -11,9 +11,11 @@ Both hooks are typed to a specific request, response, and exception type, so you
 
 When any exception escapes the request pipeline (pre-processors, behaviors, handler, or post-processors), the runtime executes a two-phase process:
 
-1. **Exception handlers** run first, from most-specific exception type to least-specific. If any handler calls `state.SetHandled(response)`, execution stops and the recovery response is returned to the caller. No further handlers or actions run.
-2. **Exception actions** run next, but only if no handler marked the exception as handled. Every registered action executes in order from most-specific to least-specific exception type.
-3. **Rethrow.** If no handler suppressed the exception, the runtime rethrows it with the original stack trace preserved via `ExceptionDispatchInfo`.
+1. **Exception handlers** run first, from most-specific exception type to least-specific. If any handler calls `state.SetHandled(response)`, execution stops and the recovery response is returned to the caller. No further handlers or actions run. Handlers are skipped when the caller canceled (see [Cancellation](#cancellation)).
+2. **Exception actions** run next, but only if no handler marked the exception as handled. Every registered action executes in order from most-specific to least-specific exception type, even when an earlier action fails.
+3. **Rethrow.** If no handler suppressed the exception, the runtime rethrows the original exception instance with its stack trace preserved via `ExceptionDispatchInfo`. If a handler or action failed along the way, it throws a `MediatorExceptionProcessingException` instead (see [Failures During Exception Processing](#failures-during-exception-processing)).
+
+Each handler or action implementation runs at most once per exception (see [Type Hierarchy Resolution](#type-hierarchy-resolution)).
 
 ```
 Pipeline throws
@@ -27,7 +29,11 @@ ExceptionHandlers (most-specific -> least-specific)
    response                    |
                                v
                           rethrow original exception
+                          (or MediatorExceptionProcessingException
+                           if a handler or action failed)
 ```
+
+A missing handler is reported through the same flow: the `InvalidOperationException` it throws reaches exception actions like any other failure.
 
 ## Request Exception Handlers
 
@@ -103,8 +109,16 @@ public sealed class CatchAllHandler
 ```
 
 ::: warning
-A catch-all handler suppresses every exception for the request type. Use this only when you have a meaningful default response for all failure scenarios.
+A catch-all handler suppresses every exception for the request type. Use this only when you have a meaningful default response for all failure scenarios. It never suppresses the caller's own cancellation; see [Cancellation](#cancellation).
 :::
+
+## Cancellation
+
+When the caller's `CancellationToken` is canceled and the request fails with an `OperationCanceledException`, the runtime skips exception handlers, so no handler can turn the caller's cancellation into a response. Exception actions still run, so cancellations can be logged, and the cancellation propagates to the caller.
+
+A cancellation the caller did not request is handled like any other exception. For example, a behavior that passes a timeout token to `next(timeoutToken)` can have its `OperationCanceledException` recovered by an exception handler, because the caller's token was not canceled.
+
+Stream requests follow the same rule, using the enumeration's token.
 
 ## Exception Actions
 
@@ -179,7 +193,9 @@ The stream exception pipeline catches exceptions at two points:
 
 In both cases, `IStreamRequestExceptionHandler` can supply a replacement stream. If a handler provides one during enumeration, the runtime switches to the new stream and continues yielding items from it.
 
-Exception handlers can replace a stream one time only for each `CreateStream` call. If the replacement stream throws, exception actions run and the exception propagates. To try more than one fallback source, write the replacement stream so that it tries each source.
+Exception handlers can replace a stream one time only for each enumeration. If the replacement stream throws, exception actions run and the exception propagates. To try more than one fallback source, write the replacement stream so that it tries each source.
+
+When enumeration fails, the failed enumerator is disposed before the exception handler runs, so the replacement can reopen the same resource. If that disposal throws, no replacement is attempted; actions run and the runtime throws `MediatorExceptionProcessingException`.
 
 ## Type Hierarchy Resolution
 
@@ -193,9 +209,37 @@ The first handler that calls `state.SetHandled(...)` wins. If multiple handlers 
 
 The same hierarchy logic applies to exception actions.
 
+**Each implementation runs once, at the most specific level it matches,** like a `catch` block. This matters for open generic components: the container closes `GlobalExceptionAction<TRequest, TException>` at every level of the hierarchy, but for a `SqlTimeoutException` it runs once, as `GlobalExceptionAction<TRequest, SqlTimeoutException>`. A generic implementation counts as one implementation across all its closed types. To act at several levels, use a separate class for each level.
+
+## Failures During Exception Processing
+
+If an exception handler or exception action throws, or a failed stream's cleanup throws, the original exception is not lost. The runtime still runs every remaining exception action, then throws a `MediatorExceptionProcessingException`:
+
+- **`InnerException`** is the exception the request originally failed with.
+- **`ProcessingExceptions`** lists the exceptions thrown while processing it.
+
+```csharp
+try
+{
+    await mediator.Send(new GetUserQuery(id), cancellationToken);
+}
+catch (MediatorExceptionProcessingException exception) when (exception.InnerException is NotFoundException)
+{
+    // The request failed with NotFoundException, and an exception action also failed.
+}
+catch (NotFoundException)
+{
+    // The request failed with NotFoundException.
+}
+```
+
+### Nested Requests
+
+When a handler sends another request and that inner request fails, the inner request's exception actions run first. If the exception then escapes the outer handler, the outer request's exception actions run too, so a global logging action sees the exception at both levels. Catch the exception in the outer handler if it should only be reported once.
+
 ## Registration
 
-Exception handlers and actions are discovered automatically by `AddMediator` assembly scanning. They use `TryAddEnumerable`, which means you can register multiple handlers and actions for the same request/exception combination.
+Exception handlers and actions are discovered automatically by `AddMediator` assembly scanning, or registered explicitly with `AddExceptionHandler`, `AddExceptionAction`, and `AddStreamExceptionHandler`. You can register multiple handlers and actions for the same request/exception combination; registering the same implementation twice has no effect.
 
 ```csharp
 services.AddMediator(options =>
@@ -235,7 +279,7 @@ public sealed class GlobalExceptionAction<TRequest, TException>
 }
 ```
 
-Assembly scanning registers this open-generic action for all request types automatically.
+Assembly scanning registers this open-generic action for all request types automatically. It runs once per failed request, at the most specific level of the thrown exception's hierarchy.
 
 ## Handlers vs. Actions at a Glance
 
@@ -244,6 +288,6 @@ Assembly scanning registers this open-generic action for all request types autom
 | **Interface** | `IRequestExceptionHandler<TRequest, TResponse, TException>` | `IRequestExceptionAction<TRequest, TException>` |
 | **Purpose** | Suppress exception, provide recovery response | Side effects before rethrow |
 | **Can prevent rethrow** | Yes, via `state.SetHandled(...)` | No |
-| **Runs when** | Always (first phase) | Only if no handler suppressed the exception |
+| **Runs when** | First phase, unless the caller canceled | Only if no handler suppressed the exception |
 | **Has access to response type** | Yes (`TResponse`) | No |
 | **Stream variant** | `IStreamRequestExceptionHandler<TRequest, TResponse, TException>` | Same `IRequestExceptionAction` interface |

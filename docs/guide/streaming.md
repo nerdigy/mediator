@@ -49,7 +49,7 @@ public sealed class GetOrdersHandler
 Apply the `[EnumeratorCancellation]` attribute to the `cancellationToken` parameter. The compiler needs it to wire up cancellation when the caller uses `WithCancellation` on the resulting `IAsyncEnumerable<T>`.
 :::
 
-Each stream request type has exactly one handler. The assembly scanner registers handlers with `TryAdd`, so duplicate registrations for the same request type are ignored. A missing handler throws `InvalidOperationException` at dispatch time.
+Each stream request type has exactly one handler. `AddMediator` fails at startup when it finds two different handlers for the same stream request type. A missing handler throws `InvalidOperationException` when enumeration starts.
 
 ## Consuming a Stream
 
@@ -153,10 +153,10 @@ public sealed class StreamLoggingBehavior<TRequest, TResponse>
 The `StreamHandlerDelegate<TResponse>` type is defined as:
 
 ```csharp
-public delegate IAsyncEnumerable<TResponse> StreamHandlerDelegate<TResponse>();
+public delegate IAsyncEnumerable<TResponse> StreamHandlerDelegate<TResponse>(CancellationToken cancellationToken = default);
 ```
 
-Call `next()` to get the inner stream, then iterate and yield its items. You can transform, filter, or augment items as they pass through.
+Call `next()` to get the inner stream, then iterate and yield its items. You can transform, filter, or augment items as they pass through. Pass a token, as in `next(linkedToken)`, to give the inner behaviors and the handler a different cancellation token; `next()` keeps the token the behavior received.
 
 ### Short-Circuiting
 
@@ -223,7 +223,16 @@ public sealed class OrderStreamFallbackHandler
 }
 ```
 
-Call `state.SetHandled(replacementStream)` to mark the exception as handled and provide a fallback `IAsyncEnumerable<TResponse>`. The runtime switches to the replacement stream and continues enumeration. The original exception does not propagate. The runtime replaces a stream one time only. If the replacement stream throws, the exception propagates without a second call to the exception handlers.
+Call `state.SetHandled(replacementStream)` to mark the exception as handled and provide a fallback `IAsyncEnumerable<TResponse>`. The runtime switches to the replacement stream and continues enumeration. The original exception does not propagate. Items already yielded before the failure are not replayed.
+
+Recovery follows these rules:
+
+- **Once per enumeration.** The runtime replaces a stream one time only. If the replacement stream throws, the exception propagates without a second call to the exception handlers. Each new enumeration of the stream gets its own single recovery.
+- **The failed stream is disposed first.** The failed enumerator is disposed before the exception handler runs, so the replacement can reopen the same resource.
+- **Cleanup failures prevent recovery.** If disposing the failed enumerator throws, no replacement is attempted. Exception actions run, and the runtime throws `MediatorExceptionProcessingException` with the original failure as `InnerException` and the disposal failure in `ProcessingExceptions`.
+- **Caller cancellation is not recovered.** When the enumeration's token is canceled and the stream fails with `OperationCanceledException`, exception handlers are skipped. Exception actions still run and the cancellation propagates.
+
+A disposal failure on a stream that completed or that the consumer stopped early propagates as is; exception handlers and actions do not run for it.
 
 The `StreamRequestExceptionHandlerState<TResponse>` class exposes:
 
@@ -266,7 +275,7 @@ Exception actions cannot prevent the exception from propagating. To recover from
 
 The runtime evaluates exception handlers and actions from the most specific exception type to the least specific, walking up the type hierarchy. For example, if a handler throws `FileNotFoundException`, the runtime checks handlers registered for `FileNotFoundException` first, then `IOException`, then `SystemException`, then `Exception`. An `HttpRequestException` derives directly from `Exception`, so only `HttpRequestException` and `Exception` handlers see it.
 
-The first handler that calls `state.SetHandled(...)` wins. Remaining handlers are not invoked.
+The first handler that calls `state.SetHandled(...)` wins. Remaining handlers are not invoked. Each handler or action implementation runs at most once per exception, at the most specific level it matches. See [Exception Handling](/guide/exception-handling#type-hierarchy-resolution).
 
 ## Practical Examples
 

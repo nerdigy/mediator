@@ -3,6 +3,10 @@ namespace Nerdigy.Mediator.UnitTests;
 /// <summary>
 /// Provides a minimal service provider for unit tests.
 /// </summary>
+/// <remarks>
+/// Like Microsoft.Extensions.DependencyInjection, it resolves an unregistered <see cref="IEnumerable{T}"/> as an empty
+/// array rather than <see langword="null"/>, so unit tests exercise the same paths as production.
+/// </remarks>
 internal sealed class TestServiceProvider : IServiceProvider
 {
     private readonly Dictionary<Type, object?> _services;
@@ -27,13 +31,18 @@ internal sealed class TestServiceProvider : IServiceProvider
     /// Resolves a registered service instance.
     /// </summary>
     /// <param name="serviceType">The service type to resolve.</param>
-    /// <returns>The registered service instance, or <see langword="null"/> when not registered.</returns>
+    /// <returns>The registered service instance, an empty array for an unregistered sequence, or <see langword="null"/>.</returns>
     public object? GetService(Type serviceType)
     {
         ArgumentNullException.ThrowIfNull(serviceType);
 
-        _services.TryGetValue(serviceType, out var service);
+        if (_services.TryGetValue(serviceType, out var service))
+        {
+            return service;
+        }
 
-        return service;
+        return serviceType.IsGenericType && serviceType.GetGenericTypeDefinition() == typeof(IEnumerable<>)
+            ? Array.CreateInstance(serviceType.GetGenericArguments()[0], 0)
+            : null;
     }
 }

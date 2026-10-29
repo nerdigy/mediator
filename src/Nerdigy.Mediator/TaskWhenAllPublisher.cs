@@ -3,8 +3,12 @@ using Nerdigy.Mediator.Contracts;
 namespace Nerdigy.Mediator;
 
 /// <summary>
-/// Publishes notifications by running all handlers concurrently with <see cref="Task.WhenAll(IEnumerable{Task})"/>.
+/// Publishes notifications by running all handlers concurrently with <see cref="Task.WhenAll(Task[])"/>.
 /// </summary>
+/// <remarks>
+/// The handler sequence is read completely before any handler starts. If reading it fails, no handler has started and
+/// the returned task is faulted, so no started work is left running when the caller sees the failure.
+/// </remarks>
 public sealed class TaskWhenAllPublisher : INotificationPublisher
 {
     /// <summary>
@@ -24,61 +28,33 @@ public sealed class TaskWhenAllPublisher : INotificationPublisher
         ArgumentNullException.ThrowIfNull(handlers);
         ArgumentNullException.ThrowIfNull(notification);
 
-        if (handlers is ICollection<INotificationHandler<TNotification>> collection)
+        INotificationHandler<TNotification>[] handlerArray;
+
+        try
         {
-            if (collection.Count == 0)
-            {
+            handlerArray = handlers as INotificationHandler<TNotification>[] ?? [.. handlers];
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException(exception);
+        }
+
+        switch (handlerArray.Length)
+        {
+            case 0:
                 return Task.CompletedTask;
-            }
-
-            if (collection.Count == 1)
-            {
-                using var enumerator = collection.GetEnumerator();
-                _ = enumerator.MoveNext();
-
-                return StartHandler(enumerator.Current, notification, cancellationToken);
-            }
-
-            var pendingTasks = new Task[collection.Count];
-            var index = 0;
-
-            foreach (var handler in collection)
-            {
-                pendingTasks[index] = StartHandler(handler, notification, cancellationToken);
-                index++;
-            }
-
-            return Task.WhenAll(pendingTasks);
+            case 1:
+                return StartHandler(handlerArray[0], notification, cancellationToken);
         }
 
-        Task? firstTask = null;
-        List<Task>? additionalTasks = null;
+        var pendingTasks = new Task[handlerArray.Length];
 
-        foreach (var handler in handlers)
+        for (var index = 0; index < handlerArray.Length; index++)
         {
-            var task = StartHandler(handler, notification, cancellationToken);
-
-            if (firstTask is null)
-            {
-                firstTask = task;
-                continue;
-            }
-
-            additionalTasks ??= [firstTask];
-            additionalTasks.Add(task);
+            pendingTasks[index] = StartHandler(handlerArray[index], notification, cancellationToken);
         }
 
-        if (additionalTasks is not null)
-        {
-            return Task.WhenAll(additionalTasks);
-        }
-
-        if (firstTask is not null)
-        {
-            return firstTask;
-        }
-
-        return Task.CompletedTask;
+        return Task.WhenAll(pendingTasks);
     }
 
     /// <summary>

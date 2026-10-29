@@ -39,6 +39,20 @@ builder.Services.AddMediator(options =>
 
 That single call registers `IMediator`, `ISender`, and `IPublisher` in the container. You can inject any of the three -- `IMediator` combines both sending and publishing, while `ISender` and `IPublisher` let you depend on only the capability you need.
 
+`AddMediator` also checks the registrations. Two handlers for the same request, or a component that could never run, fail at startup with a message that explains the fix.
+
+::: tip Prefer an explicit list, or publishing with Native AOT?
+Register each component instead of scanning:
+
+```csharp
+builder.Services.AddMediator(options => options
+    .AddRequestHandler<GetWeatherQuery, WeatherForecast, GetWeatherHandler>()
+    .AddNotificationHandler<CityDeleted, AuditLogHandler>());
+```
+
+Explicit registration is required for trimmed and Native AOT apps. See [Native AOT](/guide/native-aot).
+:::
+
 ## Send Your First Request
 
 A request is a plain class or record that implements `IRequest<TResponse>`. A handler implements `IRequestHandler<TRequest, TResponse>` with a single `Handle` method.
@@ -161,7 +175,8 @@ services.AddMediator(options =>
 });
 
 await using ServiceProvider provider = services.BuildServiceProvider();
-IMediator mediator = provider.GetRequiredService<IMediator>();
+await using AsyncServiceScope scope = provider.CreateAsyncScope();
+IMediator mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
 // Request/response
 string pong = await mediator.Send(new PingQuery("hello"));
@@ -205,3 +220,6 @@ You have requests dispatching and notifications publishing. Nerdigy.Mediator off
 - **[Streaming](/guide/streaming)** -- Async streaming with `IStreamRequest<T>`, `IAsyncEnumerable<T>`, and cancellation semantics.
 - **[Pipelines and Processors](/guide/pipelines)** -- Pre-processors, post-processors, and pipeline behaviors for cross-cutting concerns like logging and validation.
 - **[Exception Handling](/guide/exception-handling)** -- Typed exception handlers that recover from errors and exception actions for side-effects before rethrow.
+- **[Native AOT](/guide/native-aot)** -- Explicit registration for trimmed and Native AOT apps.
+- **[Observability](/guide/observability)** -- Built-in tracing and metrics for OpenTelemetry.
+- **[Migrating to 2.0](/guide/migrating-to-v2)** -- What changed from 1.x and how to upgrade.

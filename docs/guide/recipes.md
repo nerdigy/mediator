@@ -48,6 +48,7 @@ Create a void command using IRequest:
 Create an open generic logging behavior:
 - class LoggingBehavior<TRequest,TResponse> : IPipelineBehavior<TRequest,TResponse>
 - Log start/end and elapsed time
+- Call next(cancellationToken) to continue the pipeline
 - Register with options.AddOpenBehavior(typeof(LoggingBehavior<,>))
 - Show expected execution order relative to handler
 ```
@@ -87,6 +88,8 @@ Add exception handling for GetOrderByIdQuery:
 - Set fallback with state.SetHandled(...)
 - Add IRequestExceptionAction<GetOrderByIdQuery, Exception> for telemetry
 - Explain when actions run and when they are skipped
+- Note that caller cancellation skips exception handlers, and that a failing action
+  surfaces as MediatorExceptionProcessingException with the original as InnerException
 ```
 
 ## 8) Notification Strategy Selection
@@ -95,7 +98,7 @@ Add exception handling for GetOrderByIdQuery:
 
 ```text
 Update mediator registration to support notification strategy selection:
-- Use options.UseNotificationPublisherStrategy(...)
+- Use options.UseNotificationPublishStrategy(NotificationPublishStrategy.Sequential or .Parallel)
 - Show Sequential and Parallel examples
 - Explain tradeoffs:
   - deterministic ordering
@@ -116,7 +119,33 @@ Use RegisterServicesFromAssemblies(...)
 Include a minimal solution structure example
 ```
 
-## 10) LLM-Assisted Refactor To Mediator
+## 10) Native AOT Registration
+
+**Use when:** The app is trimmed or published with Native AOT.
+
+```text
+Register Nerdigy.Mediator for a Native AOT app:
+- Do not use RegisterServicesFromAssembly* (assembly scanning is not trimming-safe)
+- Register every handler explicitly: AddRequestHandler<TRequest, TResponse, THandler>(),
+  AddRequestHandler<TRequest, THandler>() for void requests, AddStreamRequestHandler, AddNotificationHandler
+- Use AddBehavior<TRequest, TResponse, TBehavior>() for behaviors on value-type requests or responses,
+  including void requests (Unit); AddOpenBehavior only works when every closed type argument is a class
+- Show the csproj with <PublishAot>true</PublishAot>
+```
+
+## 11) Timeout Behavior
+
+**Use when:** Handlers must be canceled after a time limit.
+
+```text
+Create a TimeoutBehavior<TRequest,TResponse> : IPipelineBehavior<TRequest,TResponse>:
+- Create a CancellationTokenSource linked to the incoming token, with CancelAfter
+- Call next(timeout.Token) so the handler receives the linked token
+- Explain that an exception handler can recover the timeout's OperationCanceledException,
+  but never the caller's own cancellation
+```
+
+## 12) LLM-Assisted Refactor To Mediator
 
 **Use when:** You are migrating from service-to-service direct calls.
 

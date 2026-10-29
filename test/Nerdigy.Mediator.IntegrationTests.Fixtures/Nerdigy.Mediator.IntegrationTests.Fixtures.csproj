@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Nerdigy.Mediator.Contracts\Nerdigy.Mediator.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

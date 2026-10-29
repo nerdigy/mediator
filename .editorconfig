@@ -376,3 +376,12 @@ dotnet_naming_style.s_camelcase.required_suffix =
 dotnet_naming_style.s_camelcase.word_separator = 
 dotnet_naming_style.s_camelcase.capitalization = camel_case
 
+
+#### Code analysis ####
+[*.cs]
+
+# `next` is the established name for the pipeline continuation, and VB.NET consumers are not a target.
+dotnet_diagnostic.CA1716.severity = none
+
+# RequestHandlerDelegate and StreamHandlerDelegate keep their established names.
+dotnet_diagnostic.CA1711.severity = none

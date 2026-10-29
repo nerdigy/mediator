@@ -6,7 +6,7 @@ namespace Nerdigy.Mediator.Contracts;
 /// <typeparam name="TRequest">The request type.</typeparam>
 /// <typeparam name="TResponse">The response payload type.</typeparam>
 /// <typeparam name="TException">The exception type this handler can process.</typeparam>
-public interface IRequestExceptionHandler<in TRequest, TResponse, in TException>
+public interface IRequestExceptionHandler<TRequest, TResponse, TException>
     where TRequest : IRequest<TResponse>
     where TException : Exception
 {

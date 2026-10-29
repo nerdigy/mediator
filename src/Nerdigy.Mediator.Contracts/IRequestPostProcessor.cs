@@ -5,7 +5,7 @@ namespace Nerdigy.Mediator.Contracts;
 /// </summary>
 /// <typeparam name="TRequest">The request type.</typeparam>
 /// <typeparam name="TResponse">The response payload type.</typeparam>
-public interface IRequestPostProcessor<in TRequest, in TResponse>
+public interface IRequestPostProcessor<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     /// <summary>

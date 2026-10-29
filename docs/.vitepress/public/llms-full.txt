@@ -1,6 +1,6 @@
 # Nerdigy.Mediator LLM Reference
 
-This file is optimized for machine ingestion. It summarizes package boundaries, key contracts, registration patterns, and runtime semantics.
+This file is optimized for machine ingestion. It summarizes package boundaries, key contracts, registration patterns, and runtime semantics for Nerdigy.Mediator 2.x.
 
 ## Package Boundaries
 
@@ -9,9 +9,10 @@ This file is optimized for machine ingestion. It summarizes package boundaries, 
   - Use in shared libraries that define requests/notifications/handlers but do not host runtime dispatch.
 - `Nerdigy.Mediator`
   - Core runtime dispatch for `Send`, `Publish`, and `CreateStream`.
-  - Pipeline execution and exception processing.
+  - Pipeline execution, exception processing, tracing and metrics.
+  - `MediatorRegistry` for registering dispatch code ahead of time (Native AOT).
 - `Nerdigy.Mediator.DependencyInjection`
-  - DI registration and assembly scanning.
+  - DI registration: assembly scanning or explicit registration, with startup validation.
   - Includes runtime and contracts transitively.
 
 ## Install
@@ -36,6 +37,33 @@ This registers:
 - `ISender`
 - `IPublisher`
 - scanned handlers, pipeline components, and exception components
+
+Explicit registration (required for trimmed and Native AOT apps):
+
+```csharp
+services.AddMediator(options => options
+    .AddRequestHandler<GetUserQuery, UserDto, GetUserQueryHandler>()
+    .AddRequestHandler<DeleteUserCommand, DeleteUserCommandHandler>() // void request
+    .AddStreamRequestHandler<GetOrdersStream, OrderDto, GetOrdersStreamHandler>()
+    .AddNotificationHandler<UserCreated, SendWelcomeEmailHandler>()
+    .AddBehavior<GetUserQuery, UserDto, CachingBehavior>()
+    .AddOpenBehavior(typeof(LoggingBehavior<,>)));
+```
+
+Other `MediatorOptions` methods: `AddStreamBehavior`, `AddOpenStreamBehavior`, `AddPreProcessor`, `AddPostProcessor`,
+`AddExceptionHandler`, `AddExceptionAction`, `AddStreamExceptionHandler`. Each takes an optional `ServiceLifetime`.
+`AddMediator()` with no arguments registers only the mediator, for handlers registered directly in DI.
+
+Registration rules (violations fail `AddMediator` with one `InvalidOperationException` listing every problem):
+- Exactly one handler per request type. Two different handlers fail; an explicit handler replaces a scanned one; a handler registered in DI before `AddMediator` is kept.
+- No component closed over an interface or abstract message type (e.g. `IPipelineBehavior<IAuditable, Unit>`, `INotificationHandler<INotification>`). Use an open generic constrained to the interface.
+- No `IRequestHandler<TRequest, Unit>` for a request that implements `IRequest`; implement `IRequestHandler<TRequest>`.
+- Scanned assemblies must load; set `options.IgnoreTypeLoadFailures = true` to scan what loaded.
+- A singleton mediator cannot be combined with scoped components.
+- A later `AddMediator` call cannot change `MediatorLifetime` or the publisher.
+- Behaviors run explicit ones first in call order, then scanned ones in order of full type name.
+
+Always resolve `IMediator` from a scope.
 
 ## Core Dispatch Contracts
 
@@ -63,9 +91,9 @@ public interface IPublisher
 ## Message Contracts
 
 ```csharp
-public interface IRequest<out TResponse> : IBaseRequest;
+public interface IRequest<TResponse> : IBaseRequest;
 public interface IRequest : IRequest<Unit>;
-public interface IStreamRequest<out TResponse> : IBaseRequest;
+public interface IStreamRequest<TResponse> : IBaseRequest;
 public interface INotification;
 ```
 
@@ -77,56 +105,60 @@ Rules:
 ## Handler Contracts
 
 ```csharp
-public interface IRequestHandler<in TRequest, TResponse>
+public interface IRequestHandler<TRequest, TResponse>
     where TRequest : IRequest<TResponse>;
 ```
 
 ```csharp
-public interface IRequestHandler<in TRequest>
+public interface IRequestHandler<TRequest>
     where TRequest : IRequest;
 ```
 
 ```csharp
-public interface IStreamRequestHandler<in TRequest, out TResponse>
+public interface IStreamRequestHandler<TRequest, TResponse>
     where TRequest : IStreamRequest<TResponse>;
 ```
 
 ```csharp
-public interface INotificationHandler<in TNotification>
+public interface INotificationHandler<TNotification>
     where TNotification : INotification;
 ```
 
 ## Pipeline Contracts
 
 ```csharp
-public interface IRequestPreProcessor<in TRequest> where TRequest : IBaseRequest;
-public interface IPipelineBehavior<in TRequest, TResponse> where TRequest : IRequest<TResponse>;
-public interface IRequestPostProcessor<in TRequest, in TResponse> where TRequest : IRequest<TResponse>;
-public interface IStreamPipelineBehavior<in TRequest, TResponse> where TRequest : IStreamRequest<TResponse>;
+public delegate Task<TResponse> RequestHandlerDelegate<TResponse>(CancellationToken cancellationToken = default);
+public delegate IAsyncEnumerable<TResponse> StreamHandlerDelegate<TResponse>(CancellationToken cancellationToken = default);
+public interface IRequestPreProcessor<TRequest> where TRequest : IBaseRequest;
+public interface IPipelineBehavior<TRequest, TResponse> where TRequest : IRequest<TResponse>;
+public interface IRequestPostProcessor<TRequest, TResponse> where TRequest : IRequest<TResponse>;
+public interface IStreamPipelineBehavior<TRequest, TResponse> where TRequest : IStreamRequest<TResponse>;
 ```
 
+`next()` keeps the token the behavior received; `next(token)` passes a different token to inner behaviors and the handler.
+
 Execution order for standard requests:
-1. `IRequestPreProcessor<TRequest>` in registration order
+1. `IRequestPreProcessor<TRequest>` in registration order, outside every behavior
 2. `IPipelineBehavior<TRequest,TResponse>` outer to inner in registration order
 3. handler
-4. `IRequestPostProcessor<TRequest,TResponse>` in registration order
+4. `IRequestPostProcessor<TRequest,TResponse>` in registration order, inside the innermost behavior
 
 ## Exception Contracts
 
 ```csharp
-public interface IRequestExceptionHandler<in TRequest, TResponse, in TException>
+public interface IRequestExceptionHandler<TRequest, TResponse, TException>
     where TRequest : IRequest<TResponse>
     where TException : Exception;
 ```
 
 ```csharp
-public interface IRequestExceptionAction<in TRequest, in TException>
+public interface IRequestExceptionAction<TRequest, TException>
     where TRequest : IBaseRequest
     where TException : Exception;
 ```
 
 ```csharp
-public interface IStreamRequestExceptionHandler<in TRequest, TResponse, in TException>
+public interface IStreamRequestExceptionHandler<TRequest, TResponse, TException>
     where TRequest : IStreamRequest<TResponse>
     where TException : Exception;
 ```
@@ -134,7 +166,11 @@ public interface IStreamRequestExceptionHandler<in TRequest, TResponse, in TExce
 Semantics:
 - Exception handlers run first, from most specific exception type to least specific.
 - Calling `state.SetHandled(...)` suppresses rethrow and returns fallback response.
-- Exception actions run only when no exception handler marked the exception handled.
+- Exception actions run only when no exception handler marked the exception handled. Every action runs, even when one fails.
+- Each handler or action implementation runs once per exception, at the most specific level it matches.
+- When the caller's token is canceled and the exception is `OperationCanceledException`, handlers are skipped; actions still run.
+- If a handler, action, or failed-stream cleanup throws, `MediatorExceptionProcessingException` is thrown with the original as `InnerException` and the failures in `ProcessingExceptions`.
+- Streams recover at most once per enumeration; the failed enumerator is disposed before the handler supplies a replacement.
 
 ## Notification Publisher Strategy
 
@@ -145,27 +181,43 @@ Options:
 Configure:
 
 ```csharp
-options.UseNotificationPublisherStrategy(
-    NerdigyMediatorNotificationPublisherStrategy.Sequential);
+options.UseNotificationPublishStrategy(NotificationPublishStrategy.Sequential);
 ```
 
 or
 
 ```csharp
-options.UseNotificationPublisherStrategy(
-    NerdigyMediatorNotificationPublisherStrategy.Parallel);
+options.UseNotificationPublishStrategy(NotificationPublishStrategy.Parallel);
 ```
+
+Parallel handlers share one scope. A custom publisher type is a singleton by default:
+`options.UseNotificationPublisher<MyPublisher>(ServiceLifetime.Singleton)`.
+
+## Native AOT
+
+- Use explicit registration only; assembly scanning is `[RequiresUnreferencedCode]`.
+- Microsoft.Extensions.DependencyInjection cannot close open generics over value types without dynamic code, including `Unit` for void requests. Under AOT, use `AddBehavior<TRequest, TResponse, TBehavior>()` for those requests.
+- When constructing `Mediator` manually, call `MediatorRegistry.RegisterRequest<TRequest, TResponse>()`, `RegisterVoidRequest<TRequest>()`, `RegisterStreamRequest<TRequest, TResponse>()`, and `RegisterNotification<TNotification>()` at startup.
+
+## Telemetry
+
+- Activity source and meter: `MediatorTelemetry.ActivitySourceName` and `MediatorTelemetry.MeterName` (both `"Nerdigy.Mediator"`).
+- Activities: `Nerdigy.Mediator.Send`, `Nerdigy.Mediator.Publish`, `Nerdigy.Mediator.Stream` (covers the whole enumeration).
+- Instruments: `nerdigy.mediator.operation.duration` (s), `nerdigy.mediator.operation.active`, `nerdigy.mediator.publish.handlers`.
+- Outcome tag `nerdigy.mediator.outcome`: `success`, `error`, `canceled`.
+- No cost beyond a listener check when nothing listens. No `ILogger` in core.
 
 ## High-Signal Prompt Pattern
 
 Use this when asking an LLM to generate code:
 
 ```text
-Implement this feature using Nerdigy.Mediator on .NET 10.
+Implement this feature using Nerdigy.Mediator 2.x on .NET 10.
 Use IRequest/IRequestHandler for one-to-one request flows.
 Use INotification/INotificationHandler for one-to-many fan-out.
 Use IStreamRequest/IStreamRequestHandler for streaming.
-Preserve cancellation tokens in all async paths.
+Preserve cancellation tokens in all async paths; behaviors call next(cancellationToken).
+Send requests with their declared response type (IRequest<T> is not covariant).
 Register with services.AddMediator(options => options.RegisterServicesFromAssemblyContaining<...>()).
 Output complete compileable files and minimal tests.
 ```
@@ -177,6 +229,9 @@ Output complete compileable files and minimal tests.
 - `/guide/recipes`
 - `/guide/getting-started`
 - `/guide/dependency-injection`
+- `/guide/native-aot`
+- `/guide/observability`
+- `/guide/migrating-to-v2`
 - `/guide/troubleshooting`
 - `/api/cheatsheet`
 - `/api/contracts`

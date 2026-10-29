@@ -27,8 +27,8 @@ Use this matrix to quickly choose the right contract and dispatch call.
 
 | Strategy   | Configure                                      | Best For                                     | Tradeoff                                     |
 | ---------- | ---------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
-| Sequential | `UseNotificationPublisherStrategy(Sequential)` | Deterministic order and simpler tracing      | Lower throughput                             |
-| Parallel   | `UseNotificationPublisherStrategy(Parallel)`   | Faster fan-out when handlers are independent | Concurrency and aggregate exception handling |
+| Sequential | `UseNotificationPublishStrategy(Sequential)`   | Deterministic order and simpler tracing      | Lower throughput                             |
+| Parallel   | `UseNotificationPublishStrategy(Parallel)`     | Faster fan-out when handlers are independent | Concurrency and aggregate exception handling |
 
 ## Package Selection Matrix
 
@@ -37,6 +37,7 @@ Use this matrix to quickly choose the right contract and dispatch call.
 | Contracts-only shared library         | `Nerdigy.Mediator.Contracts`                                                       |
 | Application runtime without DI helper | `Nerdigy.Mediator` + `Nerdigy.Mediator.Contracts`                                  |
 | Typical app with `IServiceCollection` | `Nerdigy.Mediator.DependencyInjection` (transitively includes runtime + contracts) |
+| Native AOT or trimmed app             | `Nerdigy.Mediator.DependencyInjection` with explicit registration (see [Native AOT](/guide/native-aot)) |
 
 ## LLM Prompt Helper
 
@@ -50,14 +51,22 @@ Pick mediator contract using these rules:
 - If progressive results are needed: IStreamRequest<TResponse> + CreateStream
 ```
 
+## Registration Matrix
+
+| You Want                                  | Use                                                        |
+| ----------------------------------------- | ---------------------------------------------------------- |
+| Discover everything in an assembly        | `RegisterServicesFromAssemblyContaining<T>()`              |
+| Native AOT, trimming, or an explicit list | `AddRequestHandler`, `AddNotificationHandler`, `AddBehavior`, ... |
+| Override one scanned handler              | Register it explicitly with `AddRequestHandler`            |
+| Handlers registered directly in DI        | `AddMediator()`                                            |
+
 ## Registration Quick Reference
 
 ```csharp
 services.AddMediator(options =>
 {
     options.RegisterServicesFromAssemblyContaining<Program>();
-    options.UseNotificationPublisherStrategy(
-        NerdigyMediatorNotificationPublisherStrategy.Sequential);
+    options.UseNotificationPublishStrategy(NotificationPublishStrategy.Sequential);
     options.AddOpenBehavior(typeof(LoggingBehavior<,>));
 });
 ```

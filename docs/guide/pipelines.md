@@ -6,10 +6,10 @@ Pipelines let you wrap cross-cutting concerns around every request without touch
 
 When you call `Send(...)`, Nerdigy.Mediator builds a pipeline around your handler. The execution order is fixed:
 
-1. **Pre-processors** -- run sequentially before the handler, in registration order
+1. **Pre-processors** -- run sequentially before the behaviors, in registration order
 2. **Pipeline behaviors** -- wrap the handler like middleware, nesting from outermost to innermost in registration order
 3. **Handler** -- your `IRequestHandler<TRequest, TResponse>` executes
-4. **Post-processors** -- run sequentially after the handler returns, in registration order
+4. **Post-processors** -- run sequentially after the handler returns, in registration order, inside the innermost behavior
 
 If any stage throws, exception handlers and actions take over (see [Exception Handling](/guide/exception-handling)).
 
@@ -17,17 +17,21 @@ If any stage throws, exception handlers and actions take over (see [Exception Ha
 
 ```
 PreProcessor 1
-  PreProcessor 2
-    Behavior 1 (before next)
-      Behavior 2 (before next)
-        ── Handler ──
-      Behavior 2 (after next)
-    Behavior 1 (after next)
-  PostProcessor 1
-PostProcessor 2
+PreProcessor 2
+Behavior 1 (before next)
+  Behavior 2 (before next)
+    ── Handler ──
+    PostProcessor 1
+    PostProcessor 2
+  Behavior 2 (after next)
+Behavior 1 (after next)
 ```
 
-Each behavior receives a `RequestHandlerDelegate<TResponse>` called `next`. Calling `next()` invokes the next behavior in the chain, or the handler itself if no behaviors remain. This is the same nesting model as ASP.NET Core middleware.
+Pre-processors run outside every behavior, so a behavior does not see their time or failures, and a short-circuiting behavior cannot skip them. Post-processors run inside the innermost behavior, so every behavior sees their time, and they are skipped when a behavior short-circuits.
+
+When a request has no pre-processors, behaviors, or post-processors, the runtime calls the handler directly.
+
+Each behavior receives a `RequestHandlerDelegate<TResponse>` called `next`. Calling `next()` invokes the next behavior in the chain, or the handler itself if no behaviors remain. This is the same nesting model as ASP.NET Core middleware. A behavior can call `next` more than once, for example to retry, and each call runs the rest of the pipeline again.
 
 ## Pipeline Behaviors
 
@@ -36,7 +40,7 @@ Each behavior receives a `RequestHandlerDelegate<TResponse>` called `next`. Call
 ### Interface
 
 ```csharp
-public interface IPipelineBehavior<in TRequest, TResponse>
+public interface IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     Task<TResponse> Handle(
@@ -46,7 +50,13 @@ public interface IPipelineBehavior<in TRequest, TResponse>
 }
 ```
 
-The `next` delegate is a `RequestHandlerDelegate<TResponse>` -- a parameterless `Func<Task<TResponse>>` that invokes the remainder of the pipeline.
+The `next` delegate is a `RequestHandlerDelegate<TResponse>` that invokes the remainder of the pipeline:
+
+```csharp
+public delegate Task<TResponse> RequestHandlerDelegate<TResponse>(CancellationToken cancellationToken = default);
+```
+
+Call `next()` to keep the token the behavior received, or `next(token)` to give the inner behaviors and the handler a different token. Passing `default` also keeps the current token.
 
 ### Logging Behavior
 
@@ -156,6 +166,30 @@ public sealed class ValidationBehavior<TRequest, TResponse>
 
 When this behavior throws before calling `next()`, the handler never executes and the exception flows to exception handlers.
 
+### Timeout Behavior
+
+Pass a linked token to `next` so the handler itself is canceled when the timeout expires:
+
+```csharp
+public sealed class TimeoutBehavior<TRequest, TResponse>
+    : IPipelineBehavior<TRequest, TResponse>
+    where TRequest : IRequest<TResponse>
+{
+    public async Task<TResponse> Handle(
+        TRequest request,
+        RequestHandlerDelegate<TResponse> next,
+        CancellationToken cancellationToken)
+    {
+        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+
+        return await next(timeout.Token);
+    }
+}
+```
+
+An `OperationCanceledException` caused by the timeout can be recovered by an exception handler, because the caller's token was not canceled. See [Cancellation](/guide/exception-handling#cancellation).
+
 ## Pre-Processors
 
 `IRequestPreProcessor<TRequest>` runs before the pipeline behavior chain. Pre-processors fire sequentially in registration order and cannot modify the response -- they only observe or validate the request.
@@ -163,7 +197,7 @@ When this behavior throws before calling `next()`, the handler never executes an
 ### Interface
 
 ```csharp
-public interface IRequestPreProcessor<in TRequest>
+public interface IRequestPreProcessor<TRequest>
     where TRequest : IBaseRequest
 {
     Task Process(TRequest request, CancellationToken cancellationToken);
@@ -230,7 +264,7 @@ public sealed class AuthorizationPreProcessor<TRequest> : IRequestPreProcessor<T
 ### Interface
 
 ```csharp
-public interface IRequestPostProcessor<in TRequest, in TResponse>
+public interface IRequestPostProcessor<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     Task Process(TRequest request, TResponse response, CancellationToken cancellationToken);
@@ -276,7 +310,7 @@ Post-processors run inside the behavior chain, after the handler. If a behavior 
 ### Interface
 
 ```csharp
-public interface IStreamPipelineBehavior<in TRequest, TResponse>
+public interface IStreamPipelineBehavior<TRequest, TResponse>
     where TRequest : IStreamRequest<TResponse>
 {
     IAsyncEnumerable<TResponse> Handle(
@@ -367,7 +401,7 @@ This behavior only runs for `GetUserQuery` requests. All other requests skip it.
 
 ## Registration and Ordering
 
-Pipeline components are discovered automatically by assembly scanning and registered via `TryAddEnumerable`, which allows multiple implementations of the same interface.
+Pipeline components are discovered automatically by assembly scanning, or registered explicitly with `AddBehavior`, `AddOpenBehavior`, `AddStreamBehavior`, `AddOpenStreamBehavior`, `AddPreProcessor`, and `AddPostProcessor`. Multiple implementations of the same interface are allowed.
 
 ```csharp
 services.AddMediator(options =>
@@ -384,7 +418,9 @@ Behaviors execute in **registration order**. The first registered behavior wraps
 - **Behavior B** (registered second) is inside A
 - **Handler** is the innermost call
 
-To define order explicitly in `AddMediator`, register open behaviors in sequence:
+Within one `AddMediator` call, behaviors added with `AddBehavior` and `AddOpenBehavior` come first, in the order you call them, followed by scanned behaviors in order of full type name.
+
+To define order explicitly in `AddMediator`, register behaviors in sequence:
 
 ```csharp
 services.AddMediator(options =>
@@ -404,7 +440,7 @@ services.AddMediator(options =>
     options.RegisterServicesFromAssemblyContaining<CreateOrderHandler>();
 });
 
-// Add a behavior that must run outermost -- it was in a different assembly
+// Registered after the scan, so it runs inside the scanned behaviors
 services.TryAddEnumerable(
     ServiceDescriptor.Transient(typeof(IPipelineBehavior<,>), typeof(TimingBehavior<,>)));
 ```

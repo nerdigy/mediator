@@ -2,7 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Nerdigy.Mediator.Contracts;
 using Nerdigy.Mediator.DependencyInjection;
-using Nerdigy.Mediator.IntegrationTests.UnsupportedComponents;
+using Nerdigy.Mediator.IntegrationTests.Fixtures;
 
 namespace Nerdigy.Mediator.IntegrationTests;
 
@@ -12,15 +12,21 @@ namespace Nerdigy.Mediator.IntegrationTests;
 public sealed class MediatorDependencyInjectionIntegrationTests
 {
     /// <summary>
-    /// Verifies that configuring mediator services without scan assemblies throws.
+    /// Verifies that the mediator can be registered without scanning and dispatches to handlers registered directly.
     /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
-    public void AddMediator_WhenNoAssembliesConfigured_ThrowsInvalidOperationException()
+    public async Task AddMediator_WhenNoAssembliesConfigured_UsesHandlersRegisteredDirectly()
     {
         var services = new ServiceCollection();
+        services.AddSingleton<IntegrationTracker>();
+        services.AddTransient<IRequestHandler<IntegrationRequest, string>, IntegrationRequestHandler>();
+        services.AddMediator();
+        using var provider = services.BuildServiceProvider(validateScopes: true);
 
-        var exception = Assert.Throws<InvalidOperationException>(() => services.AddMediator(_ => { }));
-        Assert.Contains("No assemblies were configured", exception.Message);
+        var response = await provider.GetRequiredService<IMediator>().Send(new IntegrationRequest("alpha"), CancellationToken.None);
+
+        Assert.Equal("handled:alpha", response);
     }
 
     /// <summary>
@@ -238,16 +244,16 @@ public sealed class MediatorDependencyInjectionIntegrationTests
     /// <param name="strategy">The notification publisher strategy.</param>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Theory]
-    [InlineData(NerdigyMediatorNotificationPublisherStrategy.Sequential)]
-    [InlineData(NerdigyMediatorNotificationPublisherStrategy.Parallel)]
+    [InlineData(NotificationPublishStrategy.Sequential)]
+    [InlineData(NotificationPublishStrategy.Parallel)]
     public async Task AddMediator_WhenPublishingInterfaceTypedNotification_InvokesScopedConcreteHandlers(
-        NerdigyMediatorNotificationPublisherStrategy strategy)
+        NotificationPublishStrategy strategy)
     {
         using var provider = BuildProvider(options =>
         {
             options.MediatorLifetime = ServiceLifetime.Scoped;
             options.HandlerLifetime = ServiceLifetime.Scoped;
-            options.UseNotificationPublisherStrategy(strategy);
+            options.UseNotificationPublishStrategy(strategy);
         });
         var tracker = provider.GetRequiredService<IntegrationTracker>();
         IReadOnlyList<INotification> domainEvents = [new IntegrationNotification("n1"), new IntegrationNotification("n2")];
@@ -324,26 +330,6 @@ public sealed class MediatorDependencyInjectionIntegrationTests
     }
 
     /// <summary>
-    /// Verifies a request sent through a covariant response view runs its scanned handler and pipeline.
-    /// </summary>
-    /// <returns>A task that represents the asynchronous test operation.</returns>
-    [Fact]
-    public async Task AddMediator_WhenSendingThroughCovariantResponseView_ResolvesDeclaredHandlerAndPipeline()
-    {
-        using var provider = BuildProvider();
-        var mediator = provider.GetRequiredService<IMediator>();
-        var tracker = provider.GetRequiredService<IntegrationTracker>();
-        IRequest<object> request = new IntegrationRequest("alpha");
-
-        var response = await mediator.Send(request, CancellationToken.None);
-
-        Assert.Equal("handled:alpha", response);
-        Assert.Contains("generic-behavior:before", tracker.Events);
-        Assert.Contains("behavior:before", tracker.Events);
-        Assert.Contains("post:handled:alpha", tracker.Events);
-    }
-
-    /// <summary>
     /// Verifies a void-style request sent through its <c>IRequest&lt;Unit&gt;</c> view runs its scanned void handler once.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
@@ -364,31 +350,12 @@ public sealed class MediatorDependencyInjectionIntegrationTests
     }
 
     /// <summary>
-    /// Verifies a stream request created through a covariant response view runs its scanned handler and pipeline.
-    /// </summary>
-    /// <returns>A task that represents the asynchronous test operation.</returns>
-    [Fact]
-    public async Task AddMediator_WhenCreatingStreamThroughCovariantResponseView_ResolvesDeclaredHandlerAndPipeline()
-    {
-        using var provider = BuildProvider();
-        var mediator = provider.GetRequiredService<IMediator>();
-        var tracker = provider.GetRequiredService<IntegrationTracker>();
-        IStreamRequest<object> request = new IntegrationTextStreamRequest(2);
-
-        var values = await ToListAsync(mediator.CreateStream(request, CancellationToken.None), CancellationToken.None);
-
-        Assert.Equal(["text-1", "text-2"], values);
-        Assert.Contains("generic-stream-behavior:before", tracker.Events);
-        Assert.Contains("generic-stream-behavior:after", tracker.Events);
-    }
-
-    /// <summary>
     /// Verifies configuring the parallel publisher strategy registers <see cref="TaskWhenAllPublisher"/>.
     /// </summary>
     [Fact]
     public void AddMediator_WhenParallelPublisherConfigured_RegistersTaskWhenAllPublisher()
     {
-        using var provider = BuildProvider(options => options.UseNotificationPublisherStrategy(NerdigyMediatorNotificationPublisherStrategy.Parallel));
+        using var provider = BuildProvider(options => options.UseNotificationPublishStrategy(NotificationPublishStrategy.Parallel));
 
         var publisher = provider.GetRequiredService<INotificationPublisher>();
 
@@ -420,7 +387,7 @@ public sealed class MediatorDependencyInjectionIntegrationTests
     /// </summary>
     /// <param name="configure">Additional mediator option configuration.</param>
     /// <returns>A configured service provider.</returns>
-    private static ServiceProvider BuildProvider(Action<NerdigyMediatorOptions>? configure = null)
+    private static ServiceProvider BuildProvider(Action<MediatorOptions>? configure = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IntegrationTracker>();

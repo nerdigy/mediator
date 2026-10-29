@@ -36,7 +36,8 @@ export default defineConfig({
           { text: 'Getting Started', link: '/guide/getting-started' },
           { text: 'LLM Quickstart', link: '/guide/llm-quickstart' },
           { text: 'Dependency Injection', link: '/guide/dependency-injection' },
-          { text: 'Decision Matrix', link: '/guide/decision-matrix' }
+          { text: 'Decision Matrix', link: '/guide/decision-matrix' },
+          { text: 'Migrating to 2.0', link: '/guide/migrating-to-v2' }
         ]
       },
       {
@@ -65,6 +66,8 @@ export default defineConfig({
         text: 'Operations',
         items: [
           { text: 'Performance', link: '/guide/performance' },
+          { text: 'Native AOT', link: '/guide/native-aot' },
+          { text: 'Observability', link: '/guide/observability' },
           { text: 'Troubleshooting', link: '/guide/troubleshooting' }
         ]
       },

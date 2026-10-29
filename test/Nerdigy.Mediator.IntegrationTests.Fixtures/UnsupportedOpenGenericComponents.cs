@@ -1,6 +1,6 @@
 using Nerdigy.Mediator.Contracts;
 
-namespace Nerdigy.Mediator.IntegrationTests.UnsupportedComponents;
+namespace Nerdigy.Mediator.IntegrationTests.Fixtures;
 
 /// <summary>
 /// Fixes the response type of the pipeline behavior interface, leaving one fewer type parameter than the interface.

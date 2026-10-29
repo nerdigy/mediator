@@ -5,7 +5,7 @@ namespace Nerdigy.Mediator.Contracts;
 /// </summary>
 /// <typeparam name="TRequest">The request type.</typeparam>
 /// <typeparam name="TResponse">The response payload type.</typeparam>
-public interface IRequestHandler<in TRequest, TResponse>
+public interface IRequestHandler<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     /// <summary>
@@ -21,7 +21,7 @@ public interface IRequestHandler<in TRequest, TResponse>
 /// Defines a handler for requests that do not return a response payload.
 /// </summary>
 /// <typeparam name="TRequest">The request type.</typeparam>
-public interface IRequestHandler<in TRequest>
+public interface IRequestHandler<TRequest>
     where TRequest : IRequest
 {
     /// <summary>

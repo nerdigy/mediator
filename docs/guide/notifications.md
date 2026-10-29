@@ -12,7 +12,7 @@ public sealed record OrderPlaced(Guid OrderId, decimal Total) : INotification;
 
 ## Implementing Handlers
 
-Each handler implements `INotificationHandler<TNotification>`. Nerdigy.Mediator supports multiple handlers per notification type -- the assembly scanner registers them all automatically via `TryAddEnumerable`.
+Each handler implements `INotificationHandler<TNotification>`. Nerdigy.Mediator supports multiple handlers per notification type -- the assembly scanner registers them all automatically, or register each with `options.AddNotificationHandler<TNotification, THandler>()`.
 
 ```csharp
 public sealed class OrderAuditHandler : INotificationHandler<OrderPlaced>
@@ -89,6 +89,8 @@ Handler 3 ──────>     ┘
 - Latency matters more than ordering -- total wall-clock time equals the slowest handler, not the sum
 - You accept that all handlers start before any exception surfaces -- even one thrown synchronously by a non-`async` handler -- and that publishing completes only after every handler finishes (exceptions are aggregated into an `AggregateException`)
 
+Parallel handlers are resolved from the same scope, so they share its scoped services. Handlers that run concurrently must not use a shared non-thread-safe service, such as one `DbContext`, at the same time. `TaskWhenAllPublisher` reads the whole handler sequence before starting any handler, so a failure while reading it never leaves a started handler running.
+
 ::: tip
 `TaskWhenAllPublisher` includes fast paths: zero handlers return `Task.CompletedTask` immediately, and a single handler runs without allocating a `Task[]` array.
 :::
@@ -103,12 +105,10 @@ services.AddMediator(options =>
     options.RegisterServicesFromAssemblyContaining<OrderAuditHandler>();
 
     // Sequential (default -- no call needed, shown for clarity)
-    options.UseNotificationPublisherStrategy(
-        NerdigyMediatorNotificationPublisherStrategy.Sequential);
+    options.UseNotificationPublishStrategy(NotificationPublishStrategy.Sequential);
 
     // Or parallel
-    options.UseNotificationPublisherStrategy(
-        NerdigyMediatorNotificationPublisherStrategy.Parallel);
+    options.UseNotificationPublishStrategy(NotificationPublishStrategy.Parallel);
 });
 ```
 
@@ -146,7 +146,7 @@ public sealed class ResilientPublisher : INotificationPublisher
 Register a custom publisher by type or by instance:
 
 ```csharp
-// By type -- resolved from the container
+// By type -- resolved from the container, singleton by default
 services.AddMediator(options =>
 {
     options.RegisterServicesFromAssemblyContaining<OrderAuditHandler>();
@@ -160,6 +160,8 @@ services.AddMediator(options =>
     options.UseNotificationPublisher(new ResilientPublisher());
 });
 ```
+
+A singleton publisher is shared across scopes and threads, so it must be safe to share. Pass a lifetime, as in `UseNotificationPublisher<ResilientPublisher>(ServiceLifetime.Scoped)`, if it needs scoped dependencies; a scoped publisher cannot be combined with a singleton mediator.
 
 ## Practical Patterns
 
@@ -217,7 +219,8 @@ public sealed class ProductCacheInvalidationHandler : INotificationHandler<Produ
 ## Behavior Notes
 
 - **Zero handlers is valid.** `Publish` completes successfully when no handlers are registered.
-- **Handlers resolve by runtime type.** Publishing an `OrderPlaced` stored as an `INotification` (for example, from a domain-event queue) invokes the `INotificationHandler<OrderPlaced>` handlers, just like publishing it through its concrete type.
+- **Handlers resolve by runtime type.** Publishing an `OrderPlaced` stored as an `INotification` (for example, from a domain-event queue) invokes the `INotificationHandler<OrderPlaced>` handlers, just like publishing it through its concrete type. Handlers for a base type are not invoked for a derived notification.
+- **Handlers for every notification are open generics.** `AddMediator` rejects `INotificationHandler<INotification>` and other handlers closed over an interface or abstract type, because they would never run. Declare `AllNotificationsHandler<TNotification> : INotificationHandler<TNotification> where TNotification : INotification` instead.
 - **Cancellation tokens propagate.** The `CancellationToken` passed to `Publish` is forwarded to every handler.
 - **No pipeline behaviors.** Notifications do not pass through `IPipelineBehavior<,>`, pre-processors, or post-processors. Each handler receives the notification directly from the publisher strategy.
-- **Handler registration is additive.** The assembly scanner uses `TryAddEnumerable`, so the same handler type is only registered once per notification type, but multiple distinct handler types are all registered.
+- **Handler registration is additive.** The same handler type is only registered once per notification type, but multiple distinct handler types are all registered.

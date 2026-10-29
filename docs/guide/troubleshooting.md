@@ -8,43 +8,53 @@ Use this condensed map when an assistant needs quick diagnosis:
 
 | Symptom | Likely Cause | Fast Fix |
 |---|---|---|
-| `No assemblies were configured for mediator scanning` | `AddMediator` called without assembly registration | Add `options.RegisterServicesFromAssemblyContaining<...>()` |
-| `No request handler is registered` | Handler class not scanned, wrong interface, or mismatched generic arguments | Verify interface type parameters and scanned assembly |
+| `Mediator registration failed:` at startup | Duplicate handler, component for an interface message type, void request with `Unit` handler, type load failure, or singleton mediator with scoped components | Fix each listed problem as its message describes |
+| `No request handler is registered` | Handler class not scanned or registered, wrong interface, or mismatched generic arguments | Verify interface type parameters and scanned assembly |
+| `cannot be dispatched because runtime code generation is not available` | Native AOT app with a message type that was not registered explicitly | Register it with `AddRequestHandler` (or the matching `Add` method) |
+| `MediatorExceptionProcessingException` | An exception handler, exception action, or stream cleanup threw while processing another exception | Read `InnerException` for the original failure and `ProcessingExceptions` for the broken component |
 | Notification `Publish` does nothing | No `INotificationHandler<T>` registered for type | Add handler and ensure assembly is scanned |
-| Behavior does not run | Behavior generic arguments do not match request type | Use exact request/response types or open generic behavior |
+| Behavior does not run | Behavior generic arguments do not match request type | Use exact request/response types or a constrained open generic behavior |
+| Catch-all exception handler does not recover a canceled request | The caller canceled; handlers never recover caller cancellation | Handle `OperationCanceledException` at the call site |
 | Handler never runs | Behavior skipped `await next()` | Call `next()` unless intentionally short-circuiting |
 | Exception handler runs but exception still thrown | `state.SetHandled(...)` not called | Set handled state with fallback response |
 | Stream abruptly stops on exception | No stream exception handler for thrown type | Add `IStreamRequestExceptionHandler<TRequest,TResponse,TException>` |
 
 ## Registration Errors
 
-### No assemblies configured for scanning
+### Registration failed at startup
+
+**Error message (example):**
+
+```
+System.InvalidOperationException: Mediator registration failed:
+  - IRequestHandler<GetOrderQuery, OrderDto> has more than one handler: MyApp.GetOrderHandler and MyApp.Legacy.GetOrderHandler. Keep one, or register the one you want explicitly (for example, with options.AddRequestHandler) to override the scanned one.
+  - MyApp.AuditBehavior implements IPipelineBehavior<IAuditable, Unit>, but IAuditable is an interface. Components are resolved for a message's concrete type, so this component never runs. Declare it as an open generic constrained to IAuditable instead, for example AuditBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse> where TRequest : IAuditable.
+```
+
+**Cause:** `AddMediator` checks every registration and lists each one that would misbehave at runtime:
+
+- Two different handlers for the same request type, from scanning, explicit registration, or separate `AddMediator` calls.
+- A component closed over an interface or abstract message type, which would never run.
+- An `IRequestHandler<TRequest, Unit>` for a request that implements `IRequest`, which void dispatch never uses.
+- Types in a scanned assembly that failed to load, usually because of a missing dependency.
+- An open generic whose type parameters do not match the interface.
+- A singleton mediator combined with scoped handlers, behaviors, or publisher.
+
+**Fix:** Follow the fix in each message. See [Registration Errors](/guide/dependency-injection#registration-errors). To scan the types that did load despite a load failure, set `options.IgnoreTypeLoadFailures = true`.
+
+### A later AddMediator call cannot change settings
 
 **Error message:**
 
 ```
 System.InvalidOperationException:
-No assemblies were configured for mediator scanning.
-Call RegisterServicesFromAssembly(...) or RegisterServicesFromAssemblies(...)
-inside AddMediator(options => ...).
+AddMediator was already called with MediatorLifetime Scoped, so a later call cannot
+change it to Transient. Set the mediator lifetime in the first AddMediator call only.
 ```
 
-**Cause:** You called `AddMediator` without telling the scanner which assemblies to inspect.
+**Cause:** The first `AddMediator` call sets `MediatorLifetime` and the notification publisher. Later calls can add handlers but not change those settings.
 
-**Fix:** Add at least one assembly registration inside the options callback.
-
-```csharp
-services.AddMediator(options =>
-{
-    options.RegisterServicesFromAssemblyContaining<MyHandler>();
-});
-```
-
-Or use the shorthand overload that accepts assemblies directly:
-
-```csharp
-services.AddMediator(typeof(MyHandler).Assembly);
-```
+**Fix:** Configure the mediator lifetime and publisher in one `AddMediator` call, and leave them unset in the others.
 
 ### Handler not found for a request type
 
@@ -68,6 +78,8 @@ Register IRequestHandler<DeleteOrderCommand> in your
 dependency injection container.
 ```
 
+If an `IRequestHandler<DeleteOrderCommand, Unit>` is registered instead, the message adds that void requests are only dispatched to `IRequestHandler<DeleteOrderCommand>`.
+
 **Error message (stream request):**
 
 ```
@@ -80,8 +92,8 @@ dependency injection container.
 
 **Cause:** The runtime resolved no handler from the DI container for the dispatched request type. This happens for one of several reasons:
 
-- The handler class exists but is not in a scanned assembly.
-- The handler class is `abstract` or is not `public`.
+- The handler class exists but is not in a scanned assembly, and was not registered explicitly.
+- The handler class is `abstract`.
 - The generic type parameters on the handler do not match the request and response types exactly.
 - The handler was not discovered because the assembly was not passed to `RegisterServicesFromAssembly`.
 
@@ -109,16 +121,21 @@ services.AddMediator(options =>
 });
 ```
 
-### Second handler for the same request type is silently ignored
+### Native AOT: message type cannot be dispatched
 
-**Symptom:** You registered two handlers for the same request type, but only the first one executes.
+**Error message:**
 
-**Cause:** Request handlers (`IRequestHandler<,>`, `IRequestHandler<>`, and `IStreamRequestHandler<,>`) use `TryAdd` semantics. The scanner registers the **first** implementation it finds for a given service type and silently skips duplicates. This enforces the mediator contract: one request type maps to exactly one handler.
+```
+System.InvalidOperationException:
+Message type 'MyApp.GetOrderQuery' cannot be dispatched because runtime code generation
+is not available (for example, under Native AOT) and its dispatch code was not registered.
+Register its handler with options.AddRequestHandler<GetOrderQuery, OrderDto, THandler>()
+in AddMediator(options => ...), or call the matching MediatorRegistry method at startup.
+```
 
-**Fix:** The mediator pattern requires a single handler per request type. If you need to run multiple operations for one request, use one of these approaches:
+**Cause:** Under Native AOT, the mediator can only dispatch message types whose dispatch code was registered ahead of time. Scanning and plain `services.AddTransient<IRequestHandler<...>, ...>()` registrations do not register it.
 
-- **Pipeline behaviors** -- wrap the handler with `IPipelineBehavior<TRequest, TResponse>` for cross-cutting concerns.
-- **Notifications** -- publish an `INotification` from within your handler to fan out to multiple notification handlers.
+**Fix:** Register the handler with the explicit methods on `MediatorOptions`, or call `MediatorRegistry.RegisterRequest<TRequest, TResponse>()` (and its siblings) at startup. See [Native AOT](/guide/native-aot).
 
 ### Open-generic registration does not resolve
 
@@ -220,14 +237,14 @@ public async Task<TResponse> Handle(
 
 The request pipeline executes in this order:
 
-1. **Pre-processors** (`IRequestPreProcessor<TRequest>`) -- in registration order
+1. **Pre-processors** (`IRequestPreProcessor<TRequest>`) -- in registration order, before any behavior
 2. **Pipeline behaviors** (`IPipelineBehavior<TRequest, TResponse>`) -- outer-to-inner in registration order, wrapping the handler
 3. **Request handler** (`IRequestHandler<TRequest, TResponse>`)
-4. **Post-processors** (`IRequestPostProcessor<TRequest, TResponse>`) -- in registration order
+4. **Post-processors** (`IRequestPostProcessor<TRequest, TResponse>`) -- in registration order, inside the innermost behavior
 
 On exception: **Exception handlers** run first (most-specific to least-specific exception type), then **exception actions**, then rethrow.
 
-If the order of your behaviors matters, control registration order by registering them manually before calling `AddMediator`, or structure your scanned assemblies so the scanner encounters them in the intended sequence. The scanner processes each assembly in the order you provide.
+If the order of your behaviors matters, register them with `AddBehavior` or `AddOpenBehavior` in the order you want; explicit behaviors run before scanned ones. Scanned behaviors run in order of full type name, with assemblies in the order you provide them.
 
 ## Exception Handling Issues
 
@@ -249,7 +266,9 @@ ArgumentNullException -> ArgumentException -> SystemException -> Exception
 
 A handler registered for `Exception` catches everything. A handler registered for `ArgumentNullException` only catches that specific type.
 
-4. Confirm the handler class is in a scanned assembly. Exception handlers use `TryAddEnumerable` -- multiple handlers for the same combination are allowed.
+4. Confirm the handler class is in a scanned assembly, or registered with `AddExceptionHandler`. Multiple handlers for the same combination are allowed.
+5. If the caller's token was canceled and the exception is an `OperationCanceledException`, handlers are skipped by design. See [Cancellation](/guide/exception-handling#cancellation).
+6. If the same class already ran at a more specific level of the hierarchy, it does not run again. Each implementation runs once per exception.
 
 ### Exception handler runs but the exception still propagates
 
@@ -312,12 +331,11 @@ If you need side-effects to run regardless of whether the exception is handled, 
 services.AddMediator(options =>
 {
     options.RegisterServicesFromAssemblyContaining<MyHandler>();
-    options.UseNotificationPublisherStrategy(
-        NerdigyMediatorNotificationPublisherStrategy.Parallel);
+    options.UseNotificationPublishStrategy(NotificationPublishStrategy.Parallel);
 });
 ```
 
-`TaskWhenAllPublisher` starts all handlers concurrently and awaits `Task.WhenAll`. Be aware that if any handler throws, the exception propagates as an `AggregateException` containing all failures.
+`TaskWhenAllPublisher` starts all handlers concurrently and awaits `Task.WhenAll`. Be aware that `TaskWhenAllPublisher` waits for every handler before the publish fails; awaiting it rethrows the first failure, and the returned task's `Exception` is an `AggregateException` containing all failures. Parallel handlers share one scope.
 
 ### One notification handler failure stops the rest (sequential mode)
 
@@ -444,13 +462,23 @@ The most common source of "not found" or "not executing" issues is a mismatch be
 Console.WriteLine(typeof(IRequestHandler<GetOrderQuery, OrderDto>).FullName);
 ```
 
-Compare this against what the scanner would construct from your handler class. The service type and implementation type must agree on every generic argument.
+Compare this against what the scanner would construct from your handler class. The service type and implementation type must agree on every generic argument. A component closed over an interface message type, such as `IPipelineBehavior<IAuditable, Unit>`, is rejected by `AddMediator`; use a constrained open generic instead.
 
 ## Frequently Asked Questions
 
 ### Can I register a handler manually instead of using assembly scanning?
 
-Yes. Register your handler directly with the DI container before or after calling `AddMediator`. Because the scanner uses `TryAdd`, a manually registered handler takes precedence if it is added first:
+Yes. Register it explicitly in the options, which also works under Native AOT and replaces a scanned handler for the same request:
+
+```csharp
+services.AddMediator(options =>
+{
+    options.RegisterServicesFromAssemblyContaining<OtherHandler>();
+    options.AddRequestHandler<GetOrderQuery, OrderDto, GetOrderHandler>();
+});
+```
+
+A handler registered directly with the DI container before calling `AddMediator` is also kept, and the scanned handler for that request is skipped:
 
 ```csharp
 services.AddTransient<IRequestHandler<GetOrderQuery, OrderDto>, GetOrderHandler>();
@@ -463,11 +491,11 @@ services.AddMediator(options =>
 
 ### Can I call AddMediator multiple times?
 
-Yes. Core service registrations (`IMediator`, `ISender`, `IPublisher`) use `TryAdd`, so the first call wins and subsequent calls do not produce duplicates. Handler scanning runs for each call, but `TryAdd` and `TryAddEnumerable` prevent duplicate registrations.
+Yes, for example once per module. The first call registers `IMediator`, `ISender`, `IPublisher`, and the notification publisher, and sets the mediator lifetime and publisher. A later call that sets a different mediator lifetime or publisher throws. Each call registers its own handlers, and two different handlers for the same request across calls fail registration like duplicates within one call. Registering the same component twice has no effect.
 
 ### What lifetime should I use for handlers?
 
-The default lifetime is `Transient`. If your handlers inject scoped services (such as `DbContext`), set `HandlerLifetime` to `Scoped`:
+The default lifetime is `Transient`, which works with scoped dependencies such as `DbContext` as long as you resolve `IMediator` from a scope: the handler is resolved from that scope and receives its `DbContext`. Use `Scoped` if handlers should share one instance per scope:
 
 ```csharp
 services.AddMediator(options =>
@@ -477,13 +505,13 @@ services.AddMediator(options =>
 });
 ```
 
-Resolving a scoped dependency from a transient handler can produce subtle lifetime bugs depending on your DI container configuration.
+Do not resolve `IMediator` from the root provider: its transient `IDisposable` handlers then live until the root is disposed, and scoped dependencies cannot be resolved. A singleton mediator cannot be combined with scoped handlers; `AddMediator` throws.
 
 ### Why does IRequest extend IRequest\<Unit\>?
 
 `IRequest` (the void request marker) extends `IRequest<Unit>` so that the void dispatch path can share pipeline infrastructure with the response path internally. This is an implementation detail. When you implement a void handler, use `IRequestHandler<TRequest>` (single type parameter) -- not `IRequestHandler<TRequest, Unit>`.
 
-A void request always runs its `IRequestHandler<TRequest>`, even when it is sent through the generic overload as an `IRequest<Unit>` or with `Send<Unit>`. An `IRequestHandler<TRequest, Unit>` registered for a type that implements `IRequest` is never used.
+A void request always runs its `IRequestHandler<TRequest>`, even when it is sent through the generic overload as an `IRequest<Unit>` or with `Send<Unit>`. `AddMediator` rejects an `IRequestHandler<TRequest, Unit>` for a type that implements `IRequest`, because it would never be used.
 
 ### How do I run logic before every request regardless of type?
 

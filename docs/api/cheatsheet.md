@@ -45,16 +45,16 @@ public interface IPublisher
 
 ```csharp
 public interface IBaseRequest;
-public interface IRequest<out TResponse> : IBaseRequest;
+public interface IRequest<TResponse> : IBaseRequest;
 public interface IRequest : IRequest<Unit>;
-public interface IStreamRequest<out TResponse> : IBaseRequest;
+public interface IStreamRequest<TResponse> : IBaseRequest;
 public interface INotification;
 ```
 
 ## Handler Contracts
 
 ```csharp
-public interface IRequestHandler<in TRequest, TResponse>
+public interface IRequestHandler<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     Task<TResponse> Handle(TRequest request, CancellationToken cancellationToken);
@@ -62,7 +62,7 @@ public interface IRequestHandler<in TRequest, TResponse>
 ```
 
 ```csharp
-public interface IRequestHandler<in TRequest>
+public interface IRequestHandler<TRequest>
     where TRequest : IRequest
 {
     Task Handle(TRequest request, CancellationToken cancellationToken);
@@ -70,7 +70,7 @@ public interface IRequestHandler<in TRequest>
 ```
 
 ```csharp
-public interface IStreamRequestHandler<in TRequest, out TResponse>
+public interface IStreamRequestHandler<TRequest, TResponse>
     where TRequest : IStreamRequest<TResponse>
 {
     IAsyncEnumerable<TResponse> Handle(TRequest request, CancellationToken cancellationToken);
@@ -78,7 +78,7 @@ public interface IStreamRequestHandler<in TRequest, out TResponse>
 ```
 
 ```csharp
-public interface INotificationHandler<in TNotification>
+public interface INotificationHandler<TNotification>
     where TNotification : INotification
 {
     Task Handle(TNotification notification, CancellationToken cancellationToken);
@@ -88,12 +88,13 @@ public interface INotificationHandler<in TNotification>
 ## Pipeline Contracts
 
 ```csharp
-public delegate Task<TResponse> RequestHandlerDelegate<TResponse>();
-public delegate IAsyncEnumerable<TResponse> StreamHandlerDelegate<TResponse>();
+// next() keeps the current token; next(token) passes a different one down the pipeline.
+public delegate Task<TResponse> RequestHandlerDelegate<TResponse>(CancellationToken cancellationToken = default);
+public delegate IAsyncEnumerable<TResponse> StreamHandlerDelegate<TResponse>(CancellationToken cancellationToken = default);
 ```
 
 ```csharp
-public interface IRequestPreProcessor<in TRequest>
+public interface IRequestPreProcessor<TRequest>
     where TRequest : IBaseRequest
 {
     Task Process(TRequest request, CancellationToken cancellationToken);
@@ -101,7 +102,7 @@ public interface IRequestPreProcessor<in TRequest>
 ```
 
 ```csharp
-public interface IPipelineBehavior<in TRequest, TResponse>
+public interface IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     Task<TResponse> Handle(
@@ -112,7 +113,7 @@ public interface IPipelineBehavior<in TRequest, TResponse>
 ```
 
 ```csharp
-public interface IStreamPipelineBehavior<in TRequest, TResponse>
+public interface IStreamPipelineBehavior<TRequest, TResponse>
     where TRequest : IStreamRequest<TResponse>
 {
     IAsyncEnumerable<TResponse> Handle(
@@ -123,7 +124,7 @@ public interface IStreamPipelineBehavior<in TRequest, TResponse>
 ```
 
 ```csharp
-public interface IRequestPostProcessor<in TRequest, in TResponse>
+public interface IRequestPostProcessor<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     Task Process(TRequest request, TResponse response, CancellationToken cancellationToken);
@@ -133,7 +134,7 @@ public interface IRequestPostProcessor<in TRequest, in TResponse>
 ## Exception Contracts
 
 ```csharp
-public interface IRequestExceptionHandler<in TRequest, TResponse, in TException>
+public interface IRequestExceptionHandler<TRequest, TResponse, TException>
     where TRequest : IRequest<TResponse>
     where TException : Exception
 {
@@ -146,7 +147,7 @@ public interface IRequestExceptionHandler<in TRequest, TResponse, in TException>
 ```
 
 ```csharp
-public interface IRequestExceptionAction<in TRequest, in TException>
+public interface IRequestExceptionAction<TRequest, TException>
     where TRequest : IBaseRequest
     where TException : Exception
 {
@@ -155,7 +156,7 @@ public interface IRequestExceptionAction<in TRequest, in TException>
 ```
 
 ```csharp
-public interface IStreamRequestExceptionHandler<in TRequest, TResponse, in TException>
+public interface IStreamRequestExceptionHandler<TRequest, TResponse, TException>
     where TRequest : IStreamRequest<TResponse>
     where TException : Exception
 {
@@ -185,43 +186,94 @@ public sealed class StreamRequestExceptionHandlerState<TResponse>
 }
 ```
 
+```csharp
+// Thrown when an exception handler, action, or failed-stream cleanup throws.
+public sealed class MediatorExceptionProcessingException : Exception
+{
+    // InnerException is the original exception.
+    public IReadOnlyList<Exception> ProcessingExceptions { get; }
+}
+```
+
 ## DI Registration
 
 ```csharp
 public static IServiceCollection AddMediator(
     this IServiceCollection services,
-    Action<NerdigyMediatorOptions> configure);
-```
+    Action<MediatorOptions> configure);
 
-```csharp
 public static IServiceCollection AddMediator(
     this IServiceCollection services,
-    params Assembly[] assemblies);
+    params Assembly[] assemblies); // scanning; not trimming-safe
+
+public static IServiceCollection AddMediator(this IServiceCollection services); // no scanning
 ```
 
 ```csharp
-public sealed class NerdigyMediatorOptions
+public sealed class MediatorOptions
 {
-    public ServiceLifetime MediatorLifetime { get; set; }
-    public ServiceLifetime HandlerLifetime { get; set; }
+    public IReadOnlyCollection<Assembly> AssembliesToScan { get; }
+    public ServiceLifetime MediatorLifetime { get; set; } // default Transient
+    public ServiceLifetime HandlerLifetime { get; set; }  // default Transient
+    public bool IgnoreTypeLoadFailures { get; set; }      // default false
 
-    public NerdigyMediatorOptions RegisterServicesFromAssembly(Assembly assembly);
-    public NerdigyMediatorOptions RegisterServicesFromAssemblies(params Assembly[] assemblies);
-    public NerdigyMediatorOptions RegisterServicesFromAssemblyContaining<TMarker>();
-    public NerdigyMediatorOptions AddOpenBehavior(Type openBehaviorType);
+    // Scanning (RequiresUnreferencedCode)
+    public MediatorOptions RegisterServicesFromAssembly(Assembly assembly);
+    public MediatorOptions RegisterServicesFromAssemblies(params Assembly[] assemblies);
+    public MediatorOptions RegisterServicesFromAssemblyContaining<TMarker>();
 
-    public NerdigyMediatorOptions UseNotificationPublisherStrategy(
-        NerdigyMediatorNotificationPublisherStrategy strategy);
-    public NerdigyMediatorOptions UseNotificationPublisher<TPublisher>()
+    // Explicit registration (Native AOT compatible); lifetime defaults to HandlerLifetime
+    public MediatorOptions AddRequestHandler<TRequest, TResponse, THandler>(ServiceLifetime? lifetime = null);
+    public MediatorOptions AddRequestHandler<TRequest, THandler>(ServiceLifetime? lifetime = null); // void request
+    public MediatorOptions AddStreamRequestHandler<TRequest, TResponse, THandler>(ServiceLifetime? lifetime = null);
+    public MediatorOptions AddNotificationHandler<TNotification, THandler>(ServiceLifetime? lifetime = null);
+    public MediatorOptions AddBehavior<TRequest, TResponse, TBehavior>(ServiceLifetime? lifetime = null);
+    public MediatorOptions AddStreamBehavior<TRequest, TResponse, TBehavior>(ServiceLifetime? lifetime = null);
+    public MediatorOptions AddOpenBehavior(Type openBehaviorType, ServiceLifetime? lifetime = null);
+    public MediatorOptions AddOpenStreamBehavior(Type openBehaviorType, ServiceLifetime? lifetime = null);
+    public MediatorOptions AddPreProcessor<TRequest, TProcessor>(ServiceLifetime? lifetime = null);
+    public MediatorOptions AddPostProcessor<TRequest, TResponse, TProcessor>(ServiceLifetime? lifetime = null);
+    public MediatorOptions AddExceptionHandler<TRequest, TResponse, TException, THandler>(ServiceLifetime? lifetime = null);
+    public MediatorOptions AddExceptionAction<TRequest, TException, TAction>(ServiceLifetime? lifetime = null);
+    public MediatorOptions AddStreamExceptionHandler<TRequest, TResponse, TException, THandler>(ServiceLifetime? lifetime = null);
+
+    // Notification publisher
+    public MediatorOptions UseNotificationPublishStrategy(NotificationPublishStrategy strategy);
+    public MediatorOptions UseNotificationPublisher<TPublisher>(ServiceLifetime lifetime = ServiceLifetime.Singleton)
         where TPublisher : class, INotificationPublisher;
-    public NerdigyMediatorOptions UseNotificationPublisher(INotificationPublisher publisher);
+    public MediatorOptions UseNotificationPublisher(INotificationPublisher publisher);
 }
 ```
 
 ```csharp
-public enum NerdigyMediatorNotificationPublisherStrategy
+public enum NotificationPublishStrategy
 {
     Sequential = 0,
     Parallel = 1
+}
+```
+
+## Runtime Types
+
+```csharp
+// Registers dispatch code ahead of time for a hand-built Mediator under Native AOT.
+public static class MediatorRegistry
+{
+    public static void RegisterRequest<TRequest, TResponse>() where TRequest : IRequest<TResponse>;
+    public static void RegisterVoidRequest<TRequest>() where TRequest : IRequest;
+    public static void RegisterStreamRequest<TRequest, TResponse>() where TRequest : IStreamRequest<TResponse>;
+    public static void RegisterNotification<TNotification>() where TNotification : INotification;
+}
+```
+
+```csharp
+public static class MediatorTelemetry
+{
+    public const string ActivitySourceName = "Nerdigy.Mediator";
+    public const string MeterName = "Nerdigy.Mediator";
+    public const string OperationDurationInstrument = "nerdigy.mediator.operation.duration";
+    public const string ActiveOperationsInstrument = "nerdigy.mediator.operation.active";
+    public const string PublishHandlerCountInstrument = "nerdigy.mediator.publish.handlers";
+    // Tag names: OperationTag, MessageTypeTag, OutcomeTag, ExceptionHandledTag, HandlerCountTag
 }
 ```

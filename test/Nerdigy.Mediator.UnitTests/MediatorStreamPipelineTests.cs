@@ -144,11 +144,11 @@ public sealed class MediatorStreamPipelineTests
         (Type, object?)[] registrations =
         [
             (typeof(IStreamRequestHandler<StreamPipelineRequest, int>), new ExceptionThrowingStreamHandler(exception)),
-            .. HierarchyRecordingRegistrations<FileNotFoundException>(events),
-            .. HierarchyRecordingRegistrations<IOException>(events),
-            .. HierarchyRecordingRegistrations<SystemException>(events),
-            .. HierarchyRecordingRegistrations<HttpRequestException>(events),
-            .. HierarchyRecordingRegistrations<Exception>(events)
+            .. HierarchyRecordingRegistrations<FileNotFoundException>(new FileNotFoundHandlerRecorder(events), new FileNotFoundActionRecorder(events)),
+            .. HierarchyRecordingRegistrations<IOException>(new IOHandlerRecorder(events), new IOActionRecorder(events)),
+            .. HierarchyRecordingRegistrations<SystemException>(new SystemHandlerRecorder(events), new SystemActionRecorder(events)),
+            .. HierarchyRecordingRegistrations<HttpRequestException>(new HttpRequestHandlerRecorder(events), new HttpRequestActionRecorder(events)),
+            .. HierarchyRecordingRegistrations<Exception>(new BaseHandlerRecorder(events), new BaseActionRecorder(events))
         ];
         var mediator = new MediatorRuntime(new TestServiceProvider(registrations));
 
@@ -534,15 +534,18 @@ public sealed class MediatorStreamPipelineTests
     /// Creates non-handling stream exception handler and action registrations that record when they run.
     /// </summary>
     /// <typeparam name="TException">The exception type the handler and action are registered for.</typeparam>
-    /// <param name="events">The event sink used by tests.</param>
+    /// <param name="handler">The recording exception handler.</param>
+    /// <param name="action">The recording exception action.</param>
     /// <returns>The service registrations for the handler and action.</returns>
-    private static (Type, object?)[] HierarchyRecordingRegistrations<TException>(List<string> events)
+    private static (Type, object?)[] HierarchyRecordingRegistrations<TException>(
+        IStreamRequestExceptionHandler<StreamPipelineRequest, int, TException> handler,
+        IRequestExceptionAction<StreamPipelineRequest, TException> action)
         where TException : Exception
     {
         return
         [
-            (typeof(IEnumerable<IStreamRequestExceptionHandler<StreamPipelineRequest, int, TException>>), new IStreamRequestExceptionHandler<StreamPipelineRequest, int, TException>[] { new HierarchyRecordingStreamExceptionHandler<TException>(events) }),
-            (typeof(IEnumerable<IRequestExceptionAction<StreamPipelineRequest, TException>>), new IRequestExceptionAction<StreamPipelineRequest, TException>[] { new HierarchyRecordingStreamExceptionAction<TException>(events) })
+            (typeof(IEnumerable<IStreamRequestExceptionHandler<StreamPipelineRequest, int, TException>>), new IStreamRequestExceptionHandler<StreamPipelineRequest, int, TException>[] { handler }),
+            (typeof(IEnumerable<IRequestExceptionAction<StreamPipelineRequest, TException>>), new IRequestExceptionAction<StreamPipelineRequest, TException>[] { action })
         ];
     }
 
@@ -594,7 +597,7 @@ public sealed class MediatorStreamPipelineTests
     /// Records stream exception handler execution without marking the exception as handled.
     /// </summary>
     /// <typeparam name="TException">The exception type this handler is registered for.</typeparam>
-    private sealed class HierarchyRecordingStreamExceptionHandler<TException> : IStreamRequestExceptionHandler<StreamPipelineRequest, int, TException>
+    private class HierarchyRecordingStreamExceptionHandler<TException> : IStreamRequestExceptionHandler<StreamPipelineRequest, int, TException>
         where TException : Exception
     {
         private readonly List<string> _events;
@@ -634,7 +637,7 @@ public sealed class MediatorStreamPipelineTests
     /// Records request exception action execution for stream requests.
     /// </summary>
     /// <typeparam name="TException">The exception type this action is registered for.</typeparam>
-    private sealed class HierarchyRecordingStreamExceptionAction<TException> : IRequestExceptionAction<StreamPipelineRequest, TException>
+    private class HierarchyRecordingStreamExceptionAction<TException> : IRequestExceptionAction<StreamPipelineRequest, TException>
         where TException : Exception
     {
         private readonly List<string> _events;
@@ -664,4 +667,70 @@ public sealed class MediatorStreamPipelineTests
             return Task.CompletedTask;
         }
     }
+
+
+    /// <summary>
+    /// Records exception handler execution for <see cref="FileNotFoundException"/>. Each level uses its own class, because an
+    /// implementation runs only at the most specific exception level it matches.
+    /// </summary>
+    /// <param name="events">The event sink used by tests.</param>
+    private sealed class FileNotFoundHandlerRecorder(List<string> events) : HierarchyRecordingStreamExceptionHandler<FileNotFoundException>(events);
+
+    /// <summary>
+    /// Records exception action execution for <see cref="FileNotFoundException"/>.
+    /// </summary>
+    /// <param name="events">The event sink used by tests.</param>
+    private sealed class FileNotFoundActionRecorder(List<string> events) : HierarchyRecordingStreamExceptionAction<FileNotFoundException>(events);
+
+    /// <summary>
+    /// Records exception handler execution for <see cref="IOException"/>. Each level uses its own class, because an
+    /// implementation runs only at the most specific exception level it matches.
+    /// </summary>
+    /// <param name="events">The event sink used by tests.</param>
+    private sealed class IOHandlerRecorder(List<string> events) : HierarchyRecordingStreamExceptionHandler<IOException>(events);
+
+    /// <summary>
+    /// Records exception action execution for <see cref="IOException"/>.
+    /// </summary>
+    /// <param name="events">The event sink used by tests.</param>
+    private sealed class IOActionRecorder(List<string> events) : HierarchyRecordingStreamExceptionAction<IOException>(events);
+
+    /// <summary>
+    /// Records exception handler execution for <see cref="SystemException"/>. Each level uses its own class, because an
+    /// implementation runs only at the most specific exception level it matches.
+    /// </summary>
+    /// <param name="events">The event sink used by tests.</param>
+    private sealed class SystemHandlerRecorder(List<string> events) : HierarchyRecordingStreamExceptionHandler<SystemException>(events);
+
+    /// <summary>
+    /// Records exception action execution for <see cref="SystemException"/>.
+    /// </summary>
+    /// <param name="events">The event sink used by tests.</param>
+    private sealed class SystemActionRecorder(List<string> events) : HierarchyRecordingStreamExceptionAction<SystemException>(events);
+
+    /// <summary>
+    /// Records exception handler execution for <see cref="HttpRequestException"/>. Each level uses its own class, because an
+    /// implementation runs only at the most specific exception level it matches.
+    /// </summary>
+    /// <param name="events">The event sink used by tests.</param>
+    private sealed class HttpRequestHandlerRecorder(List<string> events) : HierarchyRecordingStreamExceptionHandler<HttpRequestException>(events);
+
+    /// <summary>
+    /// Records exception action execution for <see cref="HttpRequestException"/>.
+    /// </summary>
+    /// <param name="events">The event sink used by tests.</param>
+    private sealed class HttpRequestActionRecorder(List<string> events) : HierarchyRecordingStreamExceptionAction<HttpRequestException>(events);
+
+    /// <summary>
+    /// Records exception handler execution for <see cref="Exception"/>. Each level uses its own class, because an
+    /// implementation runs only at the most specific exception level it matches.
+    /// </summary>
+    /// <param name="events">The event sink used by tests.</param>
+    private sealed class BaseHandlerRecorder(List<string> events) : HierarchyRecordingStreamExceptionHandler<Exception>(events);
+
+    /// <summary>
+    /// Records exception action execution for <see cref="Exception"/>.
+    /// </summary>
+    /// <param name="events">The event sink used by tests.</param>
+    private sealed class BaseActionRecorder(List<string> events) : HierarchyRecordingStreamExceptionAction<Exception>(events);
 }

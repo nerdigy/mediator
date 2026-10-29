@@ -6,7 +6,7 @@ namespace Nerdigy.Mediator.Contracts;
 /// <typeparam name="TRequest">The stream request type.</typeparam>
 /// <typeparam name="TResponse">The streamed response payload type.</typeparam>
 /// <typeparam name="TException">The exception type this handler can process.</typeparam>
-public interface IStreamRequestExceptionHandler<in TRequest, TResponse, in TException>
+public interface IStreamRequestExceptionHandler<TRequest, TResponse, TException>
     where TRequest : IStreamRequest<TResponse>
     where TException : Exception
 {
