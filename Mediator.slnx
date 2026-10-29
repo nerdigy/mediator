@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/bench/">
+    <Project Path="bench/Nerdigy.Mediator.Benchmarks.Comparison/Nerdigy.Mediator.Benchmarks.Comparison.csproj" />
     <Project Path="bench/Nerdigy.Mediator.Benchmarks/Nerdigy.Mediator.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/src/">
@@ -8,7 +9,8 @@
     <Project Path="src\Nerdigy.Mediator.Contracts\Nerdigy.Mediator.Contracts.csproj" />
   </Folder>
   <Folder Name="/test/">
-    <Project Path="test/Nerdigy.Mediator.IntegrationTests.UnsupportedComponents/Nerdigy.Mediator.IntegrationTests.UnsupportedComponents.csproj" />
+    <Project Path="test/Nerdigy.Mediator.AotSmokeTests/Nerdigy.Mediator.AotSmokeTests.csproj" />
+    <Project Path="test/Nerdigy.Mediator.IntegrationTests.Fixtures/Nerdigy.Mediator.IntegrationTests.Fixtures.csproj" />
     <Project Path="test/Nerdigy.Mediator.IntegrationTests/Nerdigy.Mediator.IntegrationTests.csproj" />
     <Project Path="test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj" />
   </Folder>
