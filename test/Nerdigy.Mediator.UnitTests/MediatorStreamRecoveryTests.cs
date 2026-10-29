@@ -63,25 +63,27 @@ public sealed class MediatorStreamRecoveryTests
     }
 
     /// <summary>
-    /// Verifies canceled enumeration ends when a catch-all handler supplies a stream that also observes the cancellation.
+    /// Verifies caller cancellation is not passed to a catch-all stream exception handler, while exception actions still run.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
-    public async Task CreateStream_WhenCanceledWithCatchAllHandler_StopsAfterOneRecovery()
+    public async Task CreateStream_WhenCallerCanceledWithCatchAllHandler_SkipsRecoveryAndRunsActions()
     {
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
         var exceptionHandler = new ReplacingStreamExceptionHandler(() => ObserveCancellation(cancellation.Token));
+        var action = new CountingStreamExceptionAction();
         var mediator = CreateMediator(
             () => ObserveCancellation(cancellation.Token),
             exceptionHandler,
-            new CountingStreamExceptionAction());
+            action);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => CollectAsync(mediator.CreateStream(new StreamRecoveryRequest(), cancellation.Token), [])
                 .WaitAsync(TimeSpan.FromSeconds(2)));
 
-        Assert.Equal(1, exceptionHandler.Calls);
+        Assert.Equal(0, exceptionHandler.Calls);
+        Assert.Equal(1, action.Calls);
     }
 
     /// <summary>
@@ -125,6 +127,57 @@ public sealed class MediatorStreamRecoveryTests
         Assert.Same(disposeFailure, exception);
         Assert.Equal(0, exceptionHandler.Calls);
         Assert.Equal(0, exceptionAction.Calls);
+    }
+
+    /// <summary>
+    /// Verifies a failed stream is disposed before an exception handler opens its replacement.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task CreateStream_WhenRecovering_DisposesFailedStreamBeforeCreatingReplacement()
+    {
+        List<string> events = [];
+        var exceptionHandler = new ReplacingStreamExceptionHandler(() =>
+        {
+            events.Add("recover");
+
+            return FailAfter([9], null);
+        });
+        var mediator = CreateMediator(
+            () => new FaultyStream(new InvalidOperationException("current failure"), null, () => events.Add("dispose")),
+            exceptionHandler,
+            new CountingStreamExceptionAction());
+
+        List<int> values = [];
+        await CollectAsync(mediator.CreateStream(new StreamRecoveryRequest(), CancellationToken.None), values);
+
+        Assert.Equal([9], values);
+        Assert.Equal(["dispose", "recover"], events);
+    }
+
+    /// <summary>
+    /// Verifies a failure while disposing a failed stream does not hide the original failure or allow recovery.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task CreateStream_WhenFailedStreamDisposeThrows_WrapsOriginalAndSkipsRecovery()
+    {
+        var original = new InvalidOperationException("current failure");
+        var disposeFailure = new FormatException("dispose failure");
+        var exceptionHandler = new ReplacingStreamExceptionHandler(() => FailAfter([9], null));
+        var exceptionAction = new CountingStreamExceptionAction();
+        var mediator = CreateMediator(
+            () => new FaultyStream(original, disposeFailure),
+            exceptionHandler,
+            exceptionAction);
+
+        var exception = await Assert.ThrowsAsync<MediatorExceptionProcessingException>(
+            () => CollectAsync(mediator.CreateStream(new StreamRecoveryRequest(), CancellationToken.None), []));
+
+        Assert.Same(original, exception.InnerException);
+        Assert.Same(disposeFailure, Assert.Single(exception.ProcessingExceptions));
+        Assert.Equal(0, exceptionHandler.Calls);
+        Assert.Equal(1, exceptionAction.Calls);
     }
 
     /// <summary>
@@ -333,6 +386,7 @@ public sealed class MediatorStreamRecoveryTests
     {
         private readonly Exception? _currentException;
         private readonly Exception? _disposeException;
+        private readonly Action? _onDispose;
         private bool _hasMoved;
 
         /// <summary>
@@ -340,10 +394,12 @@ public sealed class MediatorStreamRecoveryTests
         /// </summary>
         /// <param name="currentException">The exception thrown when the current value is read, or <see langword="null"/>.</param>
         /// <param name="disposeException">The exception thrown on disposal, or <see langword="null"/>.</param>
-        public FaultyStream(Exception? currentException, Exception? disposeException)
+        /// <param name="onDispose">Called when the stream is disposed, or <see langword="null"/>.</param>
+        public FaultyStream(Exception? currentException, Exception? disposeException, Action? onDispose = null)
         {
             _currentException = currentException;
             _disposeException = disposeException;
+            _onDispose = onDispose;
         }
 
         /// <summary>
@@ -379,6 +435,8 @@ public sealed class MediatorStreamRecoveryTests
         /// <returns>A completed task.</returns>
         public ValueTask DisposeAsync()
         {
+            _onDispose?.Invoke();
+
             if (_disposeException is not null)
             {
                 throw _disposeException;
