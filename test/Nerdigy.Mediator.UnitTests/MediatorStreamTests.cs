@@ -89,6 +89,57 @@ public sealed class MediatorStreamTests
     }
 
     /// <summary>
+    /// Verifies that stopping after the first item disposes the handler's enumerator, so its <c>finally</c> block runs.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task CreateStream_WhenConsumerBreaksAfterFirstItem_RunsHandlerFinally()
+    {
+        var handler = new CleanupTrackingStreamHandler();
+        var provider = new TestServiceProvider(
+            (typeof(IStreamRequestHandler<CleanupStreamRequest, int>), handler));
+        var mediator = new MediatorRuntime(provider);
+
+        await foreach (var value in mediator.CreateStream(new CleanupStreamRequest(), CancellationToken.None))
+        {
+            Assert.Equal(1, value);
+            Assert.False(handler.FinallyRan);
+
+            break;
+        }
+
+        Assert.True(handler.FinallyRan);
+    }
+
+    /// <summary>
+    /// Verifies that canceling either the <c>CreateStream</c> token or the <c>WithCancellation</c> token stops a stream that was given both.
+    /// </summary>
+    /// <param name="cancelRequestToken">Whether to cancel the <c>CreateStream</c> token instead of the <c>WithCancellation</c> token.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CreateStream_WhenBothTokensAreCancelable_EitherTokenStopsTheStream(bool cancelRequestToken)
+    {
+        var provider = new TestServiceProvider(
+            (typeof(IStreamRequestHandler<CountStreamRequest, int>), new CountingStreamHandler()));
+        var mediator = new MediatorRuntime(provider);
+        using var requestCancellation = new CancellationTokenSource();
+        using var enumerationCancellation = new CancellationTokenSource();
+        var stream = mediator.CreateStream(new CountStreamRequest(10), requestCancellation.Token);
+
+        await using var enumerator = stream.WithCancellation(enumerationCancellation.Token).GetAsyncEnumerator();
+        Assert.True(await enumerator.MoveNextAsync());
+
+        await (cancelRequestToken ? requestCancellation : enumerationCancellation).CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            _ = await enumerator.MoveNextAsync();
+        });
+    }
+
+    /// <summary>
     /// Verifies that passing a null stream request throws.
     /// </summary>
     [Fact]
@@ -126,6 +177,42 @@ public sealed class MediatorStreamTests
     /// </summary>
     /// <param name="Count">The number of values to stream.</param>
     private sealed record CountStreamRequest(int Count) : IStreamRequest<int>;
+
+    /// <summary>
+    /// Represents a stream request whose handler tracks cleanup.
+    /// </summary>
+    private sealed record CleanupStreamRequest : IStreamRequest<int>;
+
+    /// <summary>
+    /// Streams one value at a time and records when its <c>finally</c> block runs.
+    /// </summary>
+    private sealed class CleanupTrackingStreamHandler : IStreamRequestHandler<CleanupStreamRequest, int>
+    {
+        /// <summary>
+        /// Gets a value indicating whether the handler's <c>finally</c> block ran.
+        /// </summary>
+        public bool FinallyRan { get; private set; }
+
+        /// <inheritdoc />
+        public async IAsyncEnumerable<int> Handle(
+            CleanupStreamRequest request,
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            try
+            {
+                for (var value = 1; value <= 3; value++)
+                {
+                    await Task.Yield();
+
+                    yield return value;
+                }
+            }
+            finally
+            {
+                FinallyRan = true;
+            }
+        }
+    }
 
     /// <summary>
     /// Handles <see cref="CountStreamRequest"/> requests by streaming incrementing integers.
