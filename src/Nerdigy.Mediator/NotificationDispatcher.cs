@@ -46,7 +46,10 @@ internal static class NotificationDispatcher
     /// <param name="notificationPublisher">The notification publishing strategy.</param>
     /// <param name="notification">The notification to publish.</param>
     /// <param name="cancellationToken">A cancellation token that can be observed while publishing.</param>
-    /// <returns>A task that completes when publishing finishes.</returns>
+    /// <returns>
+    /// A task that completes when publishing finishes, or a canceled or faulted task when resolving the handlers or
+    /// starting the publisher throws.
+    /// </returns>
     public static Task Publish<TNotification>(
         IServiceProvider serviceProvider,
         INotificationPublisher notificationPublisher,
@@ -54,11 +57,26 @@ internal static class NotificationDispatcher
         CancellationToken cancellationToken)
         where TNotification : INotification
     {
-        var handlers = ServiceProviderUtilities.GetServices<INotificationHandler<TNotification>>(serviceProvider);
+        try
+        {
+            var handlers = ServiceProviderUtilities.GetServices<INotificationHandler<TNotification>>(serviceProvider);
 
-        MediatorInstrumentation.RecordHandlerCount(handlers.Length);
+            MediatorInstrumentation.RecordHandlerCount(handlers.Length);
 
-        return notificationPublisher.Publish(handlers, notification, cancellationToken);
+            return notificationPublisher.Publish(handlers, notification, cancellationToken);
+        }
+        catch (OperationCanceledException exception)
+        {
+            // Mirror async method semantics: a thrown cancellation produces a canceled task, not a faulted one.
+            var canceled = new TaskCompletionSource();
+            _ = canceled.TrySetCanceled(exception.CancellationToken);
+
+            return canceled.Task;
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException(exception);
+        }
     }
 }
 

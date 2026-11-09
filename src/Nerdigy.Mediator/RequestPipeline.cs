@@ -28,23 +28,23 @@ internal static class RequestPipeline<TRequest, TResponse>
         RequestTerminal<TRequest, TResponse> terminal,
         CancellationToken cancellationToken)
     {
-        var preProcessors = ServiceProviderUtilities.GetServices<IRequestPreProcessor<TRequest>>(serviceProvider);
-        var behaviors = ServiceProviderUtilities.GetServices<IPipelineBehavior<TRequest, TResponse>>(serviceProvider);
-        var postProcessors = ServiceProviderUtilities.GetServices<IRequestPostProcessor<TRequest, TResponse>>(serviceProvider);
-
-        if (preProcessors.Length != 0)
-        {
-            var context = new PipelineContext(serviceProvider, request, terminal, behaviors, postProcessors);
-
-            return ExecutePipeline(context, preProcessors, cancellationToken);
-        }
-
-        // Without preprocessors nothing has to run before the chain, so call it directly and return its task when it
-        // completes synchronously. Only a failure or a pending task needs an async method.
         Task<TResponse> task;
 
         try
         {
+            var preProcessors = ServiceProviderUtilities.GetServices<IRequestPreProcessor<TRequest>>(serviceProvider);
+            var behaviors = ServiceProviderUtilities.GetServices<IPipelineBehavior<TRequest, TResponse>>(serviceProvider);
+            var postProcessors = ServiceProviderUtilities.GetServices<IRequestPostProcessor<TRequest, TResponse>>(serviceProvider);
+
+            if (preProcessors.Length != 0)
+            {
+                var context = new PipelineContext(serviceProvider, request, terminal, behaviors, postProcessors);
+
+                return ExecutePipeline(context, preProcessors, cancellationToken);
+            }
+
+            // Without preprocessors nothing has to run before the chain, so call it directly and return its task when it
+            // completes synchronously. Only a failure or a pending task needs an async method.
             task = behaviors.Length == 0 && postProcessors.Length == 0
                 ? terminal(serviceProvider, request, cancellationToken)
                 : new PipelineContext(serviceProvider, request, terminal, behaviors, postProcessors).InvokeAt(0, cancellationToken);
