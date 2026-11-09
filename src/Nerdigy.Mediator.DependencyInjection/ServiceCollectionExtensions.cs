@@ -27,9 +27,9 @@ public static class ServiceCollectionExtensions
     /// Registration fails with an <see cref="InvalidOperationException"/> that lists every problem when a request has more
     /// than one handler, a component could never run, a scanned assembly has types that fail to load, or a singleton
     /// mediator is combined with scoped components. A call that fails this way leaves the service collection as it was. A
-    /// handler registered in the service collection before <c>AddMediator</c> is kept, and an explicitly registered handler
-    /// replaces a scanned one. An explicit registration that names a lifetime sets the lifetime of an existing registration
-    /// of the same implementation and keeps its position.
+    /// handler registered in the service collection before <c>AddMediator</c> is kept with its own lifetime, and an
+    /// explicitly registered handler replaces a scanned one. An explicit registration that names a lifetime sets the
+    /// lifetime of an existing mediator registration of the same implementation and keeps its position.
     /// </para>
     /// </remarks>
     /// <param name="services">The service collection.</param>

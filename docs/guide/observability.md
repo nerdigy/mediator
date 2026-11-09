@@ -65,6 +65,8 @@ Handlers, behaviors, and the code they call run inside the activity, so their ow
 
 The outcome tag, `nerdigy.mediator.outcome`, is `success`, `error`, or `canceled`. A request an exception handler recovered from counts as `success`; the activity's `nerdigy.mediator.exception.handled` tag tells it apart. A stream the consumer stopped early is a `success`.
 
+`nerdigy.mediator.operation.active` counts an operation only when a meter listener is attached as the operation starts, and subtracts only the operations it counted. A listener that attaches while another listener is already attached receives the decrements of the operations in flight at that moment, so its value starts below the true count by that number.
+
 Instrument and tag names are constants on `MediatorTelemetry`, such as `MediatorTelemetry.OperationDurationInstrument` and `MediatorTelemetry.OutcomeTag`.
 
 ## What Is Not Recorded
