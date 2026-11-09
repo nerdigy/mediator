@@ -58,19 +58,23 @@ The benchmarks in this guide compare each operation with a direct call to the ha
 
 ## Measured Results
 
-These numbers come from BenchmarkDotNet 0.15.8 `--job short` runs on .NET 10, Linux x64, on an AMD Ryzen AI Max+ 395. They show relative cost; run the benchmarks on your own hardware before relying on absolute numbers.
+These numbers come from BenchmarkDotNet 0.15.8 `--job short` runs on .NET 10, Linux x64, on an AMD Ryzen AI Max+ 395. They were committed on 2026-10-29 in [`ca28ee5`](https://github.com/nerdigy/mediator/commit/ca28ee5) and describe the code at that commit. They show relative cost; run the benchmarks on your own hardware before relying on absolute numbers.
 
 ### Compared with other mediators
 
 From `bench/Nerdigy.Mediator.Benchmarks.Comparison`. Each library resolves transient handlers from a scope and runs the same pass-through behavior.
 
-| Operation | Nerdigy.Mediator 2.0 | Nerdigy.Mediator 1.0 | MediatR 14.2 | martinothamar/Mediator 3.0 (source generated) |
+| Operation | Nerdigy.Mediator 2.0 | Nerdigy.Mediator 1.0 (historical) | MediatR 14.2 | martinothamar/Mediator 3.0 (source generated) |
 |---|---|---|---|---|
 | `Send`, no pipeline | 38.6 ns / 96 B | 113 ns / 456 B | 37.7 ns / 200 B | 20.9 ns / 88 B |
 | `Send` through one behavior | 59.1 ns / 312 B | 134 ns / 616 B | 72.3 ns / 440 B | 34.1 ns / 240 B |
 | `Publish` to four handlers | 51.1 ns / 184 B | 48 ns / 184 B | 254 ns / 1488 B | 67.6 ns / 152 B |
 
-The 1.0 column was measured with the same benchmark during the 2.0 review. The source-generated mediator stays ahead on `Send` because it has no runtime type lookup and no container resolution of pipeline components.
+The 1.0 column is historical. It was measured with the same benchmark during the 2.0 review. The comparison project references the current source only, so it cannot regenerate that column.
+
+The MediatR column was measured with MediatR 14.2.0, the version the project referenced at `ca28ee5`. The project now references 14.3.0, so a re-run does not reproduce that column.
+
+The source-generated mediator stays ahead on `Send` because it has no runtime type lookup and no container resolution of pipeline components.
 
 ### Overhead against a direct call
 
@@ -161,7 +165,7 @@ Handler lifetime affects both allocation rate and correctness. Transient handler
 
 ## Benchmarks
 
-The benchmark project uses [BenchmarkDotNet](https://benchmarkdotnet.org/). The handlers are minimal and do no I/O, so the results show the mediator overhead. The benchmarks are in categories. Each category has a direct-handler baseline, marked with `[Benchmark(Baseline = true)]`. The baseline calls the handler instance without the mediator and without the service provider.
+The benchmark project uses [BenchmarkDotNet](https://benchmarkdotnet.org/). The handlers are minimal and do no I/O, so the results show the mediator overhead. The `MediatorBenchmarks` class groups its benchmarks in categories. Each category has a direct-handler baseline, marked with `[Benchmark(Baseline = true)]`. The baseline calls the handler instance without the mediator and without the service provider. The `ColdStartBenchmarks` class has no categories and no baseline.
 
 | Benchmark | Category | What It Measures |
 |---|---|---|
@@ -171,14 +175,19 @@ The benchmark project uses [BenchmarkDotNet](https://benchmarkdotnet.org/). The 
 | `SendVoid` | Send | Void request dispatch with an empty pipeline. |
 | `SendValueResponse` | Send | Dispatch of a request with a value-type (`int`) response and an empty pipeline. |
 | `SendWithPipeline` | Send | Request/response dispatch through one open-generic pipeline behavior and one pre-processor. |
+| `SendWithHandledException` | Send | Dispatch of a request whose handler returns a faulted task and whose exception handler supplies a fallback response. |
 | `PublishDirect` | Publish | Baseline. Awaits four notification handler instances in sequence. |
 | `Publish` | Publish | Notification dispatch to four handlers with the default `ForeachAwaitPublisher`. |
 | `CreateStreamDirect` | Stream | Baseline. Enumerates eight values from a handler that yields synchronously. |
 | `CreateStream` | Stream | Stream dispatch and enumeration of the same synchronous handler. This benchmark shows the overhead for each item. |
 | `CreateStreamTaskYieldDirect` | StreamTaskYield | Baseline. Enumerates eight values from a handler that calls `Task.Yield` after each value. |
 | `CreateStreamTaskYield` | StreamTaskYield | Stream dispatch and enumeration of the `Task.Yield` handler. The scheduler cost is large in this benchmark, so the mediator overhead is a smaller part of the total. |
+| `ScanBuildAndFirstSend` | None | Scans the benchmark assembly, builds the container, and sends the first request. |
+| `ExplicitBuildAndFirstSend` | None | Registers the handler explicitly, builds the container, and sends the first request. |
 
-`AddMediator` registers all benchmark components through assembly scanning. The pipeline behavior has a constraint on a marker interface, so it applies only to the `SendWithPipeline` request. The other benchmarks keep an empty pipeline. `GlobalSetup` makes sure of this and stops the run if the plain request has pipeline components.
+`ColdStartBenchmarks` uses ten launches. Each launch is a new process and runs one iteration, so the dispatch caches start empty every time.
+
+`MediatorBenchmarks` registers its components with `AddMediator` through assembly scanning. The pipeline behavior has a constraint on a marker interface, so it applies only to the `SendWithPipeline` request. The other benchmarks keep an empty pipeline. `GlobalSetup` makes sure of this and stops the run if the plain request has pipeline components.
 
 ### Comparison With Other Mediators
 
