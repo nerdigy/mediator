@@ -2,6 +2,13 @@
 
 This page is optimized for copy/paste use with coding assistants. The goal is to get to a correct first draft with minimal back and forth.
 
+## Machine-Readable Reference
+
+Point your assistant at one of these files instead of pasting pages:
+
+- [`llms.txt`](https://nerdigy.github.io/mediator/llms.txt) is an index of the documentation pages, with a link and a one-line description for each.
+- [`llms-full.txt`](https://nerdigy.github.io/mediator/llms-full.txt) is one file with the package boundaries, contracts, registration rules, and runtime semantics.
+
 ## Copy This Context Into Your Prompt
 
 Use this block as the first message to your LLM before asking for code:
