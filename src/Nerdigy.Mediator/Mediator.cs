@@ -127,15 +127,45 @@ public sealed class Mediator : IMediator
     /// <typeparam name="TNotification">The notification type inferred at the call site.</typeparam>
     /// <param name="notification">The notification to publish.</param>
     /// <param name="cancellationToken">A cancellation token that can be observed while publishing.</param>
-    /// <returns>A task that completes when publishing finishes.</returns>
-    private async Task PublishWithTelemetry<TNotification>(TNotification notification, CancellationToken cancellationToken)
+    /// <returns>A task that completes after the scope ends and carries the dispatch task's full result.</returns>
+    private Task PublishWithTelemetry<TNotification>(TNotification notification, CancellationToken cancellationToken)
+        where TNotification : INotification
+    {
+        return DispatchInsideTelemetryScope(notification, cancellationToken).Unwrap();
+    }
+
+    /// <summary>
+    /// Dispatches a notification inside a telemetry scope and returns the completed dispatch task.
+    /// </summary>
+    /// <remarks>
+    /// An <see langword="async"/> method so that starting the activity does not change <c>Activity.Current</c> for the
+    /// caller. The dispatch task is returned rather than rethrown because a rethrow keeps only its first exception.
+    /// </remarks>
+    /// <typeparam name="TNotification">The notification type inferred at the call site.</typeparam>
+    /// <param name="notification">The notification to publish.</param>
+    /// <param name="cancellationToken">A cancellation token that can be observed while publishing.</param>
+    /// <returns>A task that resolves to the completed dispatch task after the scope ends.</returns>
+    private async Task<Task> DispatchInsideTelemetryScope<TNotification>(TNotification notification, CancellationToken cancellationToken)
         where TNotification : INotification
     {
         using var telemetry = MediatorInstrumentation.Start("publish", notification.GetType());
 
         try
         {
-            await NotificationDispatcher.Dispatch(_serviceProvider, _notificationPublisher, notification, cancellationToken).ConfigureAwait(false);
+            var dispatch = NotificationDispatcher.Dispatch(_serviceProvider, _notificationPublisher, notification, cancellationToken);
+
+            await dispatch.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
+            if (dispatch.Exception is { } failure)
+            {
+                telemetry?.Fail(failure.InnerExceptions[0], cancellationToken);
+            }
+            else if (dispatch.IsCanceled)
+            {
+                telemetry?.Fail(new TaskCanceledException(dispatch), cancellationToken);
+            }
+
+            return dispatch;
         }
         catch (Exception exception)
         {

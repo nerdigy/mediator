@@ -117,6 +117,24 @@ public sealed class MediatorTelemetryTests : IDisposable
     }
 
     /// <summary>
+    /// Verifies the caller's current activity is unchanged when <c>Send</c> returns and when its task completes.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task Send_WhenListening_LeavesCallerActivityCurrent()
+    {
+        using var callerActivity = new Activity("caller").Start();
+        var mediator = new MediatorRuntime(new TestServiceProvider(
+            (typeof(IRequestHandler<TelemetryRequest, string>), new TelemetryHandler())));
+
+        var sent = mediator.Send(new TelemetryRequest(Fail: false), CancellationToken.None);
+
+        Assert.Same(callerActivity, Activity.Current);
+        await sent;
+        Assert.Same(callerActivity, Activity.Current);
+    }
+
+    /// <summary>
     /// Verifies a canceled send records the canceled outcome rather than an error.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
