@@ -24,6 +24,8 @@ jobs:
   publish:
     name: Pack and Publish
     runs-on: ubuntu-latest
+    # The required reviewers on this environment approve each release.
+    environment: nuget
 
     env:
       NUGET_SOURCE_URL: https://api.nuget.org/v3/index.json
@@ -31,6 +33,21 @@ jobs:
     steps:
       - name: "📥 Checkout repository"
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: "🛡️ Verify the release commit is on main"
+        # Covers both triggers: a v*.*.* tag can point at any commit, and a manual run can start from any ref.
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release commit $GITHUB_SHA is not on main. Packages are published only from commits on main."
+            exit 1
+          fi
 
       - name: "🔧 Setup .NET"
         uses: actions/setup-dotnet@v6
@@ -67,11 +84,22 @@ jobs:
       - name: "🏗️ Build solution"
         run: dotnet build Mediator.slnx --no-restore -c Release -p:Version="${PACKAGE_VERSION}"
 
+      - name: "📏 Check formatting"
+        run: dotnet format Mediator.slnx --verify-no-changes --no-restore
+
       - name: "🧪 Run unit tests"
         run: dotnet test test/Nerdigy.Mediator.UnitTests/Nerdigy.Mediator.UnitTests.csproj --no-build -c Release --logger "trx;LogFileName=unit-tests.trx"
 
       - name: "🔌 Run integration tests"
         run: dotnet test test/Nerdigy.Mediator.IntegrationTests/Nerdigy.Mediator.IntegrationTests.csproj --no-build -c Release --logger "trx;LogFileName=integration-tests.trx"
+
+      - name: "🏗️ Publish with Native AOT"
+        # Trim and AOT warnings fail the publish, because TreatWarningsAsErrors is on for every project. The publish
+        # rebuilds the referenced packages, so the release version has to match or the pack step below ships that rebuild.
+        run: dotnet publish test/Nerdigy.Mediator.AotSmokeTests/Nerdigy.Mediator.AotSmokeTests.csproj -c Release -r linux-x64 -o artifacts/aot -p:Version="${PACKAGE_VERSION}"
+
+      - name: "🚀 Run the native binary"
+        run: ./artifacts/aot/Nerdigy.Mediator.AotSmokeTests
 
       - name: "📦 Pack NuGet packages"
         shell: bash
