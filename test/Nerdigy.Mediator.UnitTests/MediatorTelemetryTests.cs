@@ -15,6 +15,7 @@ namespace Nerdigy.Mediator.UnitTests;
 /// <remarks>
 /// Listeners see every mediator operation in the process, so each test filters by its own message types.
 /// </remarks>
+[Collection(TelemetryCollection.Name)]
 public sealed class MediatorTelemetryTests : IDisposable
 {
     private readonly ConcurrentQueue<Activity> _activities = new();
