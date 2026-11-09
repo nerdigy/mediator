@@ -117,6 +117,7 @@ internal static class MediatorInstrumentation
         private readonly string _operation;
         private readonly long _startTimestamp;
         private readonly Activity? _activity;
+        private readonly bool _countedActive;
         private string _outcome = "success";
         private string? _errorType;
 
@@ -143,6 +144,7 @@ internal static class MediatorInstrumentation
             if (s_active.Enabled)
             {
                 s_active.Add(1, CreateTags(includeOutcome: false));
+                _countedActive = true;
             }
         }
 
@@ -200,7 +202,8 @@ internal static class MediatorInstrumentation
         /// </summary>
         public void Dispose()
         {
-            if (s_active.Enabled)
+            // A listener that attached after this operation started never saw its increment.
+            if (_countedActive)
             {
                 s_active.Add(-1, CreateTags(includeOutcome: false));
             }
