@@ -24,7 +24,7 @@ Mediator.Send<TResponse>()
 3. **Handler** -- the single `IRequestHandler<TRequest, TResponse>` is resolved and executes. If no handler is registered, it throws `InvalidOperationException` with a message naming the missing registration.
 4. **Post-processors** -- all registered `IRequestPostProcessor<TRequest, TResponse>` instances run sequentially in registration order, inside the innermost behavior, receiving both the request and the response.
 
-If any stage throws, execution transfers to the [exception processing flow](#exception-processing-flow).
+If any stage throws, execution transfers to the [exception processing flow](#exception-processing-flow). This includes a pre-processor, behavior, or post-processor that the container cannot resolve. `Send` reports such a failure through the task it returns; it throws synchronously only for a `null` request and for a request type with no dispatch code under Native AOT.
 
 When there are no pre-processors, behaviors, or post-processors, the runtime calls the handler directly. When the pipeline completes synchronously, its task is returned as is, without an extra async state machine.
 
