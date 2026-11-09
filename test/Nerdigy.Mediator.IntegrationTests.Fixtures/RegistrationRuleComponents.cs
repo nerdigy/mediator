@@ -354,3 +354,21 @@ public sealed class DisposableQueryHandler(DisposalLog log) : IRequestHandler<Di
         return ValueTask.CompletedTask;
     }
 }
+
+/// <summary>
+/// An open generic request behavior that records each run.
+/// </summary>
+/// <typeparam name="TRequest">The request type.</typeparam>
+/// <typeparam name="TResponse">The response payload type.</typeparam>
+/// <param name="log">The event log.</param>
+public sealed class OpenRuleBehavior<TRequest, TResponse>(RuleEventLog log) : IPipelineBehavior<TRequest, TResponse>
+    where TRequest : IRequest<TResponse>
+{
+    /// <inheritdoc />
+    public Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
+    {
+        log.Events.Add("open-behavior");
+
+        return next(cancellationToken);
+    }
+}
