@@ -25,12 +25,13 @@ public static class MediatorRegistry
     /// <typeparam name="TRequest">The concrete request type.</typeparam>
     /// <typeparam name="TResponse">The response payload type.</typeparam>
     /// <exception cref="ArgumentException">
-    /// Thrown when <typeparamref name="TRequest"/> implements <see cref="IRequest"/>; use <see cref="RegisterVoidRequest{TRequest}"/>.
+    /// Thrown when <typeparamref name="TResponse"/> is <see cref="Unit"/> and <typeparamref name="TRequest"/> implements
+    /// <see cref="IRequest"/>; use <see cref="RegisterVoidRequest{TRequest}"/>.
     /// </exception>
     public static void RegisterRequest<TRequest, TResponse>()
         where TRequest : IRequest<TResponse>
     {
-        if (typeof(IRequest).IsAssignableFrom(typeof(TRequest)))
+        if (typeof(TResponse) == typeof(Unit) && typeof(IRequest).IsAssignableFrom(typeof(TRequest)))
         {
             throw new ArgumentException(
                 $"Request type '{typeof(TRequest).FullName}' implements IRequest, so it is handled by IRequestHandler<{typeof(TRequest).Name}>. Register it with RegisterVoidRequest<{typeof(TRequest).Name}>().",
