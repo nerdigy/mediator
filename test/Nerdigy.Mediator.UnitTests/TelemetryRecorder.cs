@@ -20,14 +20,15 @@ internal sealed class TelemetryRecorder : IDisposable
     /// </summary>
     /// <param name="activities">Whether to attach an activity listener.</param>
     /// <param name="metrics">Whether to attach a meter listener.</param>
-    public TelemetryRecorder(bool activities = true, bool metrics = true)
+    /// <param name="sample">The sampler, or <see langword="null"/> to record everything.</param>
+    public TelemetryRecorder(bool activities = true, bool metrics = true, SampleActivity<ActivityContext>? sample = null)
     {
         if (activities)
         {
             _activityListener = new ActivityListener
             {
                 ShouldListenTo = static source => source.Name == MediatorTelemetry.ActivitySourceName,
-                Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+                Sample = sample ?? (static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded),
                 ActivityStopped = _activities.Enqueue,
             };
             ActivitySource.AddActivityListener(_activityListener);

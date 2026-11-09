@@ -174,6 +174,9 @@ internal static class StreamRequestPipeline<TRequest, TResponse>
                 {
                     while (true)
                     {
+                        // Every consumer resumption reaches here or the disposal in the finally block below.
+                        telemetry?.MakeActivityCurrent();
+
                         var moveNext = await TryMoveNext(enumerator).ConfigureAwait(false);
 
                         if (moveNext.Exception is not null)
@@ -201,7 +204,7 @@ internal static class StreamRequestPipeline<TRequest, TResponse>
                     {
                         try
                         {
-                            await enumerator.DisposeAsync().ConfigureAwait(false);
+                            await DisposeEnumerator(enumerator, telemetry).ConfigureAwait(false);
                         }
                         catch (Exception disposeFailure) when (RecordFailure(telemetry, disposeFailure, cancellationToken))
                         {
@@ -217,7 +220,7 @@ internal static class StreamRequestPipeline<TRequest, TResponse>
 
                 try
                 {
-                    await enumerator.DisposeAsync().ConfigureAwait(false);
+                    await DisposeEnumerator(enumerator, telemetry).ConfigureAwait(false);
                 }
                 catch (Exception disposeFailure)
                 {
@@ -238,7 +241,22 @@ internal static class StreamRequestPipeline<TRequest, TResponse>
     }
 
     /// <summary>
-    /// Processes a stream failure and records it on the telemetry scope when it is rethrown.
+    /// Disposes a handler's enumerator with the stream's activity current.
+    /// </summary>
+    /// <param name="enumerator">The enumerator to dispose.</param>
+    /// <param name="telemetry">The telemetry scope for this enumeration, if telemetry is enabled.</param>
+    /// <returns>A task that completes when the enumerator is disposed.</returns>
+    private static ValueTask DisposeEnumerator(
+        IAsyncEnumerator<TResponse> enumerator,
+        MediatorInstrumentation.OperationScope? telemetry)
+    {
+        telemetry?.MakeActivityCurrent();
+
+        return enumerator.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Processes a stream failure with the stream's activity current, and records the outcome on the telemetry scope.
     /// </summary>
     /// <param name="serviceProvider">The service provider used to resolve exception components.</param>
     /// <param name="request">The stream request that failed.</param>
@@ -257,15 +275,21 @@ internal static class StreamRequestPipeline<TRequest, TResponse>
         MediatorInstrumentation.OperationScope? telemetry,
         CancellationToken cancellationToken)
     {
+        telemetry?.MakeActivityCurrent();
+
         try
         {
-            return await StreamRequestExceptionProcessor<TRequest, TResponse>.Process(
+            var replacement = await StreamRequestExceptionProcessor<TRequest, TResponse>.Process(
                 serviceProvider,
                 request,
                 exception,
                 canRecover,
                 processingFailures,
                 cancellationToken).ConfigureAwait(false);
+
+            telemetry?.RecordHandledException(exception);
+
+            return replacement;
         }
         catch (Exception rethrown)
         {

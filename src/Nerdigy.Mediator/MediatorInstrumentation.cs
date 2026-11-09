@@ -73,10 +73,7 @@ internal static class MediatorInstrumentation
             return;
         }
 
-        activity.SetTag(MediatorTelemetry.ExceptionHandledTag, true);
-        activity.AddEvent(new ActivityEvent(
-            "nerdigy.mediator.exception_handled",
-            tags: new ActivityTagsCollection { ["exception.type"] = exception.GetType().FullName }));
+        MarkExceptionHandled(activity, exception);
     }
 
     /// <summary>
@@ -96,6 +93,19 @@ internal static class MediatorInstrumentation
         {
             activity.SetTag(MediatorTelemetry.HandlerCountTag, handlerCount);
         }
+    }
+
+    /// <summary>
+    /// Marks an activity as recovered by an exception handler.
+    /// </summary>
+    /// <param name="activity">The activity.</param>
+    /// <param name="exception">The exception the handler recovered from.</param>
+    private static void MarkExceptionHandled(Activity activity, Exception exception)
+    {
+        activity.SetTag(MediatorTelemetry.ExceptionHandledTag, true);
+        activity.AddEvent(new ActivityEvent(
+            "nerdigy.mediator.exception_handled",
+            tags: new ActivityTagsCollection { ["exception.type"] = exception.GetType().FullName }));
     }
 
     /// <summary>
@@ -156,6 +166,33 @@ internal static class MediatorInstrumentation
             _activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
             _activity?.SetTag("error.type", _errorType);
             _activity?.AddException(exception);
+        }
+
+        /// <summary>
+        /// Marks this operation's activity as recovered by an exception handler.
+        /// </summary>
+        /// <param name="exception">The exception the handler recovered from.</param>
+        public void RecordHandledException(Exception exception)
+        {
+            if (_activity is not null)
+            {
+                MarkExceptionHandled(_activity, exception);
+            }
+        }
+
+        /// <summary>
+        /// Makes this operation's activity <see cref="Activity.Current"/>, or does nothing when it has no activity.
+        /// </summary>
+        /// <remarks>
+        /// An async iterator restores its caller's execution context each time it returns, so a stream calls this every
+        /// time it resumes. The change stays inside the iterator and never reaches the consumer.
+        /// </remarks>
+        public void MakeActivityCurrent()
+        {
+            if (_activity is not null)
+            {
+                Activity.Current = _activity;
+            }
         }
 
         /// <summary>

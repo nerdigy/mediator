@@ -46,8 +46,6 @@ internal static class StreamRequestExceptionProcessor<TRequest, TResponse>
 
                 if (await TryHandle(serviceProvider, request, exception, state, cancellationToken).ConfigureAwait(false))
                 {
-                    MediatorInstrumentation.RecordHandledException(exception);
-
                     return state.ResponseStream!;
                 }
             }
