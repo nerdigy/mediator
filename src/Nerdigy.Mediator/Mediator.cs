@@ -149,29 +149,25 @@ public sealed class Mediator : IMediator
         where TNotification : INotification
     {
         using var telemetry = MediatorInstrumentation.Start("publish", notification.GetType());
+        Task? dispatch = null;
 
         try
         {
-            var dispatch = NotificationDispatcher.Dispatch(_serviceProvider, _notificationPublisher, notification, cancellationToken);
+            dispatch = NotificationDispatcher.Dispatch(_serviceProvider, _notificationPublisher, notification, cancellationToken);
 
-            await dispatch.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-
-            if (dispatch.Exception is { } failure)
-            {
-                telemetry?.Fail(failure.InnerExceptions[0], cancellationToken);
-            }
-            else if (dispatch.IsCanceled)
-            {
-                telemetry?.Fail(new TaskCanceledException(dispatch), cancellationToken);
-            }
-
-            return dispatch;
+            // Awaiting rethrows the task's own exception: its first failure, or the original cancellation.
+            await dispatch.ConfigureAwait(false);
         }
         catch (Exception exception)
         {
             telemetry?.Fail(exception, cancellationToken);
 
-            throw;
+            if (dispatch is null)
+            {
+                throw;
+            }
         }
+
+        return dispatch;
     }
 }

@@ -28,7 +28,7 @@ All notable changes to the Nerdigy.Mediator packages are documented here. The pr
 - **An explicit registration that names a lifetime applies it to an existing registration** of the same
   implementation, such as one an earlier `AddMediator` call found by scanning, and keeps its position. Before, the
   lifetime was dropped without an error. A request or stream handler registered directly in the service collection
-  before `AddMediator` still wins and keeps its own lifetime.
+  before `AddMediator` still wins and keeps its own lifetime, and instance and factory registrations are left alone.
 - **`MediatorRegistry.RegisterRequest<TRequest, TResponse>` accepts a request that implements both `IRequest` and
   `IRequest<TResponse>`** when `TResponse` is not `Unit`, so `AddRequestHandler` works for it under Native AOT.
 - **`nerdigy.mediator.operation.active` no longer goes negative when the first meter listener attaches** while

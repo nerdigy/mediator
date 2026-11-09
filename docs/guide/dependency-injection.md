@@ -85,7 +85,7 @@ services.AddMediator(options => options
 | `AddExceptionAction<TRequest, TException, TAction>()` | `IRequestExceptionAction<TRequest, TException>` |
 | `AddStreamExceptionHandler<TRequest, TResponse, TException, THandler>()` | `IStreamRequestExceptionHandler<TRequest, TResponse, TException>` |
 
-Every method takes an optional `ServiceLifetime`. Without one, the component uses `HandlerLifetime`. A registration that names a lifetime also applies it to an existing registration of the same implementation, such as one an earlier `AddMediator` call found by scanning, and keeps that registration's position. The exception is a request or stream handler that you registered directly in the service collection before `AddMediator`: it keeps its own lifetime.
+Every method takes an optional `ServiceLifetime`. Without one, the component uses `HandlerLifetime`. A registration that names a lifetime also applies it to an existing registration of the same implementation, such as one an earlier `AddMediator` call found by scanning, and keeps that registration's position. The exception is a request or stream handler that you registered directly in the service collection before `AddMediator`: it keeps its own lifetime. Registrations made with an instance or a factory are also left alone, because they name no implementation type.
 
 Explicit registration and scanning can be combined. An explicitly registered handler replaces a scanned handler for the same request, which is the supported way to override one.
 

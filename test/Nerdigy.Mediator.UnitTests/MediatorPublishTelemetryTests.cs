@@ -106,6 +106,38 @@ public sealed class MediatorPublishTelemetryTests
     }
 
     /// <summary>
+    /// Verifies a cancellation the caller did not request is recorded as the handler's own exception, not a substitute.
+    /// </summary>
+    /// <param name="parallel">Whether to publish with <see cref="TaskWhenAllPublisher"/> instead of <see cref="ForeachAwaitPublisher"/>.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Publish_WhenHandlerCancelsItsOwnToken_RecordsTheOriginalException(bool parallel)
+    {
+        using var recorder = new TelemetryRecorder();
+        INotificationPublisher publisher = parallel ? new TaskWhenAllPublisher() : new ForeachAwaitPublisher();
+        var mediator = new MediatorRuntime(
+            new TestServiceProvider(
+                (typeof(IEnumerable<INotificationHandler<PublishNotification>>), new INotificationHandler<PublishNotification>[] { new OwnTimeoutHandler() })),
+            publisher);
+
+        var published = mediator.Publish(new PublishNotification(), CancellationToken.None);
+        var thrown = await Assert.ThrowsAsync<OperationCanceledException>(() => published);
+
+        var activity = Assert.Single(recorder.ActivitiesFor<PublishNotification>());
+        Assert.Equal(ActivityStatusCode.Error, activity.Status);
+        Assert.Equal(typeof(OperationCanceledException).FullName, activity.GetTagItem("error.type"));
+        var exceptionEvent = Assert.Single(activity.Events, static activityEvent => activityEvent.Name == "exception");
+        var eventTags = exceptionEvent.Tags.ToDictionary(static tag => tag.Key, static tag => tag.Value);
+        Assert.Equal(thrown.Message, eventTags["exception.message"]);
+        Assert.Contains(nameof(OwnTimeoutHandler), Assert.IsType<string>(eventTags["exception.stacktrace"]));
+        var duration = Assert.Single(recorder.MeasurementsFor<PublishNotification>(MediatorTelemetry.OperationDurationInstrument));
+        Assert.Equal("error", duration.Tags[MediatorTelemetry.OutcomeTag]);
+        Assert.Equal(typeof(OperationCanceledException).FullName, duration.Tags["error.type"]);
+    }
+
+    /// <summary>
     /// Verifies a publisher that throws synchronously and one that returns a faulted task are both reported.
     /// </summary>
     /// <param name="throwSynchronously">Whether the publisher throws instead of returning a faulted task.</param>
@@ -198,6 +230,21 @@ public sealed class MediatorPublishTelemetryTests
         {
             await Task.Yield();
             cancellationToken.ThrowIfCancellationRequested();
+        }
+    }
+
+    /// <summary>
+    /// Cancels a token of its own and throws for it, as a handler with an internal timeout does.
+    /// </summary>
+    private sealed class OwnTimeoutHandler : INotificationHandler<PublishNotification>
+    {
+        /// <inheritdoc />
+        public async Task Handle(PublishNotification notification, CancellationToken cancellationToken)
+        {
+            using var timeout = new CancellationTokenSource();
+            await timeout.CancelAsync();
+            await Task.Yield();
+            timeout.Token.ThrowIfCancellationRequested();
         }
     }
 
