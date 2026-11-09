@@ -98,7 +98,7 @@ await sender.Send(new DeleteUserCommand(userId), cancellationToken);
 ```
 
 ::: info How void requests work internally
-`IRequest` extends `IRequest<Unit>`, where `Unit` is a zero-size struct that represents the absence of a value. The runtime bridges between the void handler and the response-bearing pipeline so that void requests participate in the same pre-processors, behaviors, post-processors, and exception handling as response-bearing requests. You never interact with `Unit` directly.
+`IRequest` extends `IRequest<Unit>`, where `Unit` is a zero-size struct that represents the absence of a value. The runtime bridges between the void handler and the response-bearing pipeline so that void requests participate in the same pre-processors, behaviors, post-processors, and exception handling as response-bearing requests. Code that defines, handles, or sends a void request does not name `Unit`. A pipeline component closed over a void request does name it as the response type, for example `AddBehavior<DeleteUserCommand, Unit, LoggingBehavior<DeleteUserCommand, Unit>>()` under [Native AOT](/guide/native-aot).
 :::
 
 ## One Handler Per Request

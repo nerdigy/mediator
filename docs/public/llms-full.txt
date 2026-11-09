@@ -224,15 +224,15 @@ Output complete compileable files and minimal tests.
 
 ## Canonical Source Pages
 
-- `/guide/llm-quickstart`
-- `/guide/decision-matrix`
-- `/guide/recipes`
-- `/guide/getting-started`
-- `/guide/dependency-injection`
-- `/guide/native-aot`
-- `/guide/observability`
-- `/guide/migrating-to-v2`
-- `/guide/troubleshooting`
-- `/api/cheatsheet`
-- `/api/contracts`
-- `/api/runtime-behavior`
+- [LLM Quickstart](https://nerdigy.github.io/mediator/guide/llm-quickstart.html)
+- [Decision Matrix](https://nerdigy.github.io/mediator/guide/decision-matrix.html)
+- [Recipe Catalog](https://nerdigy.github.io/mediator/guide/recipes.html)
+- [Getting Started](https://nerdigy.github.io/mediator/guide/getting-started.html)
+- [Dependency Injection](https://nerdigy.github.io/mediator/guide/dependency-injection.html)
+- [Native AOT](https://nerdigy.github.io/mediator/guide/native-aot.html)
+- [Observability](https://nerdigy.github.io/mediator/guide/observability.html)
+- [Migrating to 2.0](https://nerdigy.github.io/mediator/guide/migrating-to-v2.html)
+- [Troubleshooting](https://nerdigy.github.io/mediator/guide/troubleshooting.html)
+- [API Cheatsheet](https://nerdigy.github.io/mediator/api/cheatsheet.html)
+- [Contracts Reference](https://nerdigy.github.io/mediator/api/contracts.html)
+- [Runtime Behavior](https://nerdigy.github.io/mediator/api/runtime-behavior.html)

@@ -89,7 +89,7 @@ Registration is idempotent and applies to every mediator in the process. `Regist
 
 ## Smoke Test
 
-The repository includes a Native AOT smoke test, `test/Nerdigy.Mediator.AotSmokeTests`, which CI publishes and runs on every pull request. It registers every kind of component explicitly, including struct requests, a struct notification published through `INotification`, an exception hierarchy, and an open behavior in a container with only class types. It prints `PASS` or `FAIL` for each check and exits with the number of failures.
+The repository includes a Native AOT smoke test, `test/Nerdigy.Mediator.AotSmokeTests`, which CI publishes and runs on every pull request. It registers every kind of component explicitly, including struct requests, a struct notification published through `INotification`, an exception hierarchy, a failed stream replaced by a stream exception handler, a request with no registered dispatch code, `MediatorRegistry` used with a hand-built `Mediator`, and open behaviors in a container with only class types. Each dispatch check runs once with no telemetry listener and once with one. It prints `PASS` or `FAIL` for each check and exits with the number of failures.
 
 ```bash
 dotnet publish test/Nerdigy.Mediator.AotSmokeTests/Nerdigy.Mediator.AotSmokeTests.csproj -c Release -r linux-x64 -o artifacts/aot

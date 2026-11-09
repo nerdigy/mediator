@@ -181,22 +181,99 @@ public sealed class MediatorStreamRecoveryTests
     }
 
     /// <summary>
+    /// Verifies an exception handler can replace a stream whose <c>GetAsyncEnumerator</c> throws.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task CreateStream_WhenGetAsyncEnumeratorThrows_ExceptionHandlerCanReplaceTheStream()
+    {
+        var exceptionHandler = new ReplacingStreamExceptionHandler(() => FailAfter([9], null));
+        var exceptionAction = new CountingStreamExceptionAction();
+        var mediator = CreateMediator(
+            () => new ThrowingEnumeratorStream(new InvalidOperationException("enumerator failure")),
+            exceptionHandler,
+            exceptionAction);
+
+        List<int> values = [];
+        await CollectAsync(mediator.CreateStream(new StreamRecoveryRequest(), CancellationToken.None), values);
+
+        Assert.Equal([9], values);
+        Assert.Equal(1, exceptionHandler.Calls);
+        Assert.Equal(0, exceptionAction.Calls);
+    }
+
+    /// <summary>
+    /// Verifies that without an exception handler a <c>GetAsyncEnumerator</c> failure reaches the consumer after exception actions run.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task CreateStream_WhenGetAsyncEnumeratorThrowsWithoutHandler_RunsActionsAndPropagates()
+    {
+        var failure = new InvalidOperationException("enumerator failure");
+        var exceptionAction = new CountingStreamExceptionAction();
+        var mediator = CreateMediator(
+            () => new ThrowingEnumeratorStream(failure),
+            exceptionHandler: null,
+            exceptionAction);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => CollectAsync(mediator.CreateStream(new StreamRecoveryRequest(), CancellationToken.None), []));
+
+        Assert.Same(failure, exception);
+        Assert.Equal(1, exceptionAction.Calls);
+    }
+
+    /// <summary>
+    /// Verifies that each enumeration of one returned stream runs the pipeline and gets its own recovery.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task CreateStream_WhenEnumeratedTwice_RunsPipelineAndAllowsOneRecoveryEachTime()
+    {
+        var handlerCalls = 0;
+        var exceptionHandler = new ReplacingStreamExceptionHandler(() => FailAfter([9], null));
+        var preProcessor = new CountingPreProcessor();
+        var mediator = CreateMediator(
+            () =>
+            {
+                handlerCalls++;
+
+                return FailAfter([1], new InvalidOperationException("stream failure"));
+            },
+            exceptionHandler,
+            new CountingStreamExceptionAction(),
+            preProcessor);
+        var stream = mediator.CreateStream(new StreamRecoveryRequest(), CancellationToken.None);
+
+        List<int> first = [];
+        await CollectAsync(stream, first);
+        List<int> second = [];
+        await CollectAsync(stream, second);
+
+        Assert.Equal([1, 9], first);
+        Assert.Equal([1, 9], second);
+        Assert.Equal(2, handlerCalls);
+        Assert.Equal(2, preProcessor.Calls);
+        Assert.Equal(2, exceptionHandler.Calls);
+    }
+
+    /// <summary>
     /// Creates a mediator with one stream handler and the supplied exception components.
     /// </summary>
     /// <param name="streamFactory">The factory that creates the handler stream.</param>
-    /// <param name="exceptionHandler">The catch-all stream exception handler.</param>
+    /// <param name="exceptionHandler">The catch-all stream exception handler, or <see langword="null"/> for none.</param>
     /// <param name="exceptionAction">The catch-all exception action.</param>
     /// <param name="preProcessor">An optional request preprocessor.</param>
     /// <returns>The configured mediator.</returns>
     private static MediatorRuntime CreateMediator(
         Func<IAsyncEnumerable<int>> streamFactory,
-        ReplacingStreamExceptionHandler exceptionHandler,
+        ReplacingStreamExceptionHandler? exceptionHandler,
         CountingStreamExceptionAction exceptionAction,
         IRequestPreProcessor<StreamRecoveryRequest>? preProcessor = null)
     {
         var provider = new TestServiceProvider(
             (typeof(IStreamRequestHandler<StreamRecoveryRequest, int>), new DelegateStreamHandler(streamFactory)),
-            (typeof(IEnumerable<IStreamRequestExceptionHandler<StreamRecoveryRequest, int, Exception>>), new IStreamRequestExceptionHandler<StreamRecoveryRequest, int, Exception>[] { exceptionHandler }),
+            (typeof(IEnumerable<IStreamRequestExceptionHandler<StreamRecoveryRequest, int, Exception>>), exceptionHandler is null ? Array.Empty<IStreamRequestExceptionHandler<StreamRecoveryRequest, int, Exception>>() : new IStreamRequestExceptionHandler<StreamRecoveryRequest, int, Exception>[] { exceptionHandler }),
             (typeof(IEnumerable<IRequestExceptionAction<StreamRecoveryRequest, Exception>>), new IRequestExceptionAction<StreamRecoveryRequest, Exception>[] { exceptionAction }),
             (typeof(IEnumerable<IRequestPreProcessor<StreamRecoveryRequest>>), preProcessor is null ? Array.Empty<IRequestPreProcessor<StreamRecoveryRequest>>() : new[] { preProcessor }));
 
@@ -376,6 +453,47 @@ public sealed class MediatorStreamRecoveryTests
         public Task Process(StreamRecoveryRequest request, CancellationToken cancellationToken)
         {
             throw _exception;
+        }
+    }
+
+    /// <summary>
+    /// Counts preprocessor calls.
+    /// </summary>
+    private sealed class CountingPreProcessor : IRequestPreProcessor<StreamRecoveryRequest>
+    {
+        /// <summary>
+        /// Gets the number of times this preprocessor ran.
+        /// </summary>
+        public int Calls { get; private set; }
+
+        /// <summary>
+        /// Counts the call.
+        /// </summary>
+        /// <param name="request">The request being processed.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>A completed task.</returns>
+        public Task Process(StreamRecoveryRequest request, CancellationToken cancellationToken)
+        {
+            Calls++;
+
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// A stream whose <see cref="IAsyncEnumerable{T}.GetAsyncEnumerator"/> throws.
+    /// </summary>
+    /// <param name="exception">The exception to throw.</param>
+    private sealed class ThrowingEnumeratorStream(Exception exception) : IAsyncEnumerable<int>
+    {
+        /// <summary>
+        /// Throws the configured exception.
+        /// </summary>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>This method does not return.</returns>
+        public IAsyncEnumerator<int> GetAsyncEnumerator(CancellationToken cancellationToken = default)
+        {
+            throw exception;
         }
     }
 

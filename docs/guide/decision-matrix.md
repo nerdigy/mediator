@@ -20,7 +20,7 @@ Use this matrix to quickly choose the right contract and dispatch call.
 | Around stream execution              | `IStreamPipelineBehavior<TRequest, TResponse>`                    | Stream requests                       | Yes                |
 | Post-handle side effects             | `IRequestPostProcessor<TRequest, TResponse>`                      | Request/response and void requests    | No                 |
 | Recover from known exceptions        | `IRequestExceptionHandler<TRequest, TResponse, TException>`       | Request/response and void requests    | Yes (`SetHandled`) |
-| Side effects on unhandled exceptions | `IRequestExceptionAction<TRequest, TException>`                   | Request/response and void requests    | No                 |
+| Side effects on unhandled exceptions | `IRequestExceptionAction<TRequest, TException>`                   | Requests and streams (`IBaseRequest`) | No                 |
 | Recover from stream exceptions       | `IStreamRequestExceptionHandler<TRequest, TResponse, TException>` | Stream requests                       | Yes (`SetHandled`) |
 
 ## Notification Delivery Matrix

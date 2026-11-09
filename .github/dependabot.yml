@@ -12,6 +12,12 @@ updates:
       nuget:
         patterns:
           - "*"
+    ignore:
+      # This is the DI package's dependency floor. Raising it forces every consumer up to that version.
+      - dependency-name: Microsoft.Extensions.DependencyInjection.Abstractions
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     labels:
       - dependencies
       - nuget
@@ -30,3 +36,17 @@ updates:
     labels:
       - dependencies
       - actions
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: America/Chicago
+    groups:
+      npm:
+        patterns:
+          - "*"
+    labels:
+      - dependencies

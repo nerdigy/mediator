@@ -15,6 +15,7 @@ namespace Nerdigy.Mediator.UnitTests;
 /// <remarks>
 /// Listeners see every mediator operation in the process, so each test filters by its own message types.
 /// </remarks>
+[Collection(TelemetryCollection.Name)]
 public sealed class MediatorTelemetryTests : IDisposable
 {
     private readonly ConcurrentQueue<Activity> _activities = new();
@@ -113,6 +114,24 @@ public sealed class MediatorTelemetryTests : IDisposable
         var activity = Assert.Single(ActivitiesFor<TelemetryRequest>());
         Assert.Equal(true, activity.GetTagItem(MediatorTelemetry.ExceptionHandledTag));
         Assert.Contains(activity.Events, static activityEvent => activityEvent.Name == "nerdigy.mediator.exception_handled");
+    }
+
+    /// <summary>
+    /// Verifies the caller's current activity is unchanged when <c>Send</c> returns and when its task completes.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task Send_WhenListening_LeavesCallerActivityCurrent()
+    {
+        using var callerActivity = new Activity("caller").Start();
+        var mediator = new MediatorRuntime(new TestServiceProvider(
+            (typeof(IRequestHandler<TelemetryRequest, string>), new TelemetryHandler())));
+
+        var sent = mediator.Send(new TelemetryRequest(Fail: false), CancellationToken.None);
+
+        Assert.Same(callerActivity, Activity.Current);
+        await sent;
+        Assert.Same(callerActivity, Activity.Current);
     }
 
     /// <summary>

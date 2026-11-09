@@ -114,7 +114,7 @@ A catch-all handler suppresses every exception for the request type. Use this on
 
 ## Cancellation
 
-When the caller's `CancellationToken` is canceled and the request fails with an `OperationCanceledException`, the runtime skips exception handlers, so no handler can turn the caller's cancellation into a response. Exception actions still run, so cancellations can be logged, and the cancellation propagates to the caller.
+When the caller's `CancellationToken` is canceled and the request fails with an `OperationCanceledException`, the runtime skips exception handlers, so no handler can turn the caller's cancellation into a response. Exception actions still run, so cancellations can be logged, and the cancellation propagates to the caller. An action receives the same canceled token; if it throws `OperationCanceledException` because of it, the action counts as canceled, not failed, and the remaining actions still run.
 
 A cancellation the caller did not request is handled like any other exception. For example, a behavior that passes a timeout token to `next(timeoutToken)` can have its `OperationCanceledException` recovered by an exception handler, because the caller's token was not canceled.
 

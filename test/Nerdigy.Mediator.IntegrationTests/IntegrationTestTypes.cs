@@ -55,6 +55,41 @@ public sealed class IntegrationTracker
 }
 
 /// <summary>
+/// A notification publisher that records each publish and then runs the handlers in order.
+/// </summary>
+/// <param name="tracker">The shared test tracker.</param>
+public sealed class RecordingNotificationPublisher(IntegrationTracker tracker) : INotificationPublisher
+{
+    /// <summary>
+    /// Gets the number of notifications published through this instance.
+    /// </summary>
+    public int PublishCount { get; private set; }
+
+    /// <summary>
+    /// Records the publish and runs the handlers.
+    /// </summary>
+    /// <typeparam name="TNotification">The notification type.</typeparam>
+    /// <param name="handlers">The notification handlers.</param>
+    /// <param name="notification">The notification.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task that completes when every handler finishes.</returns>
+    public async Task Publish<TNotification>(
+        IEnumerable<INotificationHandler<TNotification>> handlers,
+        TNotification notification,
+        CancellationToken cancellationToken)
+        where TNotification : INotification
+    {
+        PublishCount++;
+        tracker.Record("publisher");
+
+        foreach (var handler in handlers)
+        {
+            await handler.Handle(notification, cancellationToken).ConfigureAwait(false);
+        }
+    }
+}
+
+/// <summary>
 /// Represents a send request for integration tests.
 /// </summary>
 /// <param name="Value">The request payload.</param>

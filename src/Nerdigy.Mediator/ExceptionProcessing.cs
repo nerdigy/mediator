@@ -214,7 +214,11 @@ internal sealed class ExceptionActionInvoker<TRequest, TException> : ExceptionAc
             }
             catch (Exception actionFailure)
             {
-                (processingFailures ??= []).Add(actionFailure);
+                // An action that observes the caller's canceled token was canceled; it did not fail.
+                if (!ExceptionProcessing.IsCallerCancellation(actionFailure, cancellationToken))
+                {
+                    (processingFailures ??= []).Add(actionFailure);
+                }
             }
         }
 

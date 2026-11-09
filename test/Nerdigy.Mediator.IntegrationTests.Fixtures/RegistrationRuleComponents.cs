@@ -354,3 +354,165 @@ public sealed class DisposableQueryHandler(DisposalLog log) : IRequestHandler<Di
         return ValueTask.CompletedTask;
     }
 }
+/// <summary>
+/// A request base type, which the mediator never dispatches to directly.
+/// </summary>
+public abstract record AbstractRuleRequest : IRequest<string>;
+
+/// <summary>
+/// A handler closed over an abstract request type, which the mediator would never run.
+/// </summary>
+public sealed class AbstractRuleRequestHandler : IRequestHandler<AbstractRuleRequest, string>
+{
+    /// <inheritdoc />
+    public Task<string> Handle(AbstractRuleRequest request, CancellationToken cancellationToken)
+    {
+        return Task.FromResult("abstract");
+    }
+}
+
+/// <summary>
+/// A behavior closed over an abstract request type, which the mediator would never run.
+/// </summary>
+public sealed class AbstractRuleRequestBehavior : IPipelineBehavior<AbstractRuleRequest, string>
+{
+    /// <inheritdoc />
+    public Task<string> Handle(AbstractRuleRequest request, RequestHandlerDelegate<string> next, CancellationToken cancellationToken)
+    {
+        return next(cancellationToken);
+    }
+}
+
+/// <summary>
+/// A request interface, which the mediator never dispatches to directly.
+/// </summary>
+public interface IRuleRequest : IRequest<string>;
+
+/// <summary>
+/// A handler closed over an interface request type, which the mediator would never run.
+/// </summary>
+public sealed class InterfaceRuleRequestHandler : IRequestHandler<IRuleRequest, string>
+{
+    /// <inheritdoc />
+    public Task<string> Handle(IRuleRequest request, CancellationToken cancellationToken)
+    {
+        return Task.FromResult("interface");
+    }
+}
+
+/// <summary>
+/// An abstract handler, which scanning skips.
+/// </summary>
+public abstract class AbstractRuleQueryHandler : IRequestHandler<RuleQuery, string>
+{
+    /// <inheritdoc />
+    public abstract Task<string> Handle(RuleQuery request, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// An abstract open generic behavior, which the container cannot create.
+/// </summary>
+/// <typeparam name="TRequest">The request type.</typeparam>
+/// <typeparam name="TResponse">The response payload type.</typeparam>
+public abstract class AbstractOpenRuleBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
+    where TRequest : IRequest<TResponse>
+{
+    /// <inheritdoc />
+    public abstract Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// An open generic class that implements no mediator interface.
+/// </summary>
+/// <typeparam name="TRequest">The request type.</typeparam>
+/// <typeparam name="TResponse">The response payload type.</typeparam>
+public sealed class NotAPipelineBehavior<TRequest, TResponse>;
+
+/// <summary>
+/// An open generic request behavior that records each run.
+/// </summary>
+/// <typeparam name="TRequest">The request type.</typeparam>
+/// <typeparam name="TResponse">The response payload type.</typeparam>
+/// <param name="log">The event log.</param>
+public sealed class OpenRuleBehavior<TRequest, TResponse>(RuleEventLog log) : IPipelineBehavior<TRequest, TResponse>
+    where TRequest : IRequest<TResponse>
+{
+    /// <inheritdoc />
+    public Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
+    {
+        log.Events.Add("open-behavior");
+
+        return next(cancellationToken);
+    }
+}
+
+/// <summary>
+/// An open generic stream behavior that records each run.
+/// </summary>
+/// <typeparam name="TRequest">The stream request type.</typeparam>
+/// <typeparam name="TResponse">The streamed response payload type.</typeparam>
+/// <param name="log">The event log.</param>
+public sealed class OpenRuleStreamBehavior<TRequest, TResponse>(RuleEventLog log) : IStreamPipelineBehavior<TRequest, TResponse>
+    where TRequest : IStreamRequest<TResponse>
+{
+    /// <inheritdoc />
+    public IAsyncEnumerable<TResponse> Handle(TRequest request, StreamHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
+    {
+        log.Events.Add("open-stream-behavior");
+
+        return next(cancellationToken);
+    }
+}
+
+/// <summary>
+/// A stream request whose handler fails.
+/// </summary>
+public sealed record FailingRuleStream : IStreamRequest<int>;
+
+/// <summary>
+/// Fails while enumerating <see cref="FailingRuleStream"/>.
+/// </summary>
+public sealed class FailingRuleStreamHandler : IStreamRequestHandler<FailingRuleStream, int>
+{
+    /// <inheritdoc />
+    public async IAsyncEnumerable<int> Handle(FailingRuleStream request, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+
+        throw new InvalidOperationException("stream failure");
+#pragma warning disable CS0162
+        yield break;
+#pragma warning restore CS0162
+    }
+}
+
+/// <summary>
+/// Replaces a failed <see cref="FailingRuleStream"/> with a fallback stream.
+/// </summary>
+/// <param name="log">The event log.</param>
+public sealed class FailingRuleStreamExceptionHandler(RuleEventLog log) : IStreamRequestExceptionHandler<FailingRuleStream, int, InvalidOperationException>
+{
+    /// <inheritdoc />
+    public Task Handle(
+        FailingRuleStream request,
+        InvalidOperationException exception,
+        StreamRequestExceptionHandlerState<int> state,
+        CancellationToken cancellationToken)
+    {
+        log.Events.Add("stream-recovered");
+        state.SetHandled(Fallback());
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Produces the fallback stream.
+    /// </summary>
+    /// <returns>The fallback values.</returns>
+    private static async IAsyncEnumerable<int> Fallback()
+    {
+        await Task.Yield();
+
+        yield return 7;
+    }
+}

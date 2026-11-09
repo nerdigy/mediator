@@ -85,7 +85,7 @@ services.AddMediator(options => options
 | `AddExceptionAction<TRequest, TException, TAction>()` | `IRequestExceptionAction<TRequest, TException>` |
 | `AddStreamExceptionHandler<TRequest, TResponse, TException, THandler>()` | `IStreamRequestExceptionHandler<TRequest, TResponse, TException>` |
 
-Every method takes an optional `ServiceLifetime`. Without one, the component uses `HandlerLifetime`.
+Every method takes an optional `ServiceLifetime`. Without one, the component uses `HandlerLifetime`. A registration that names a lifetime also applies it to an existing registration of the same implementation, such as one an earlier `AddMediator` call found by scanning, and keeps that registration's position. The exception is a request or stream handler that you registered directly in the service collection before `AddMediator`: it keeps its own lifetime. Registrations made with an instance or a factory are also left alone, because they name no implementation type.
 
 Explicit registration and scanning can be combined. An explicitly registered handler replaces a scanned handler for the same request, which is the supported way to override one.
 
@@ -156,6 +156,8 @@ Behaviors run in registration order, the first registered being the outermost:
 | A scanned assembly with types that fail to load | Fix the missing dependency, or set `options.IgnoreTypeLoadFailures = true` to scan the types that loaded |
 | An open generic whose type parameters do not match the interface (see [Supported Open-Generic Shapes](#supported-open-generic-shapes)) | Reorder its type parameters, or close it for a specific request |
 | A singleton mediator combined with scoped components (see [Service Lifetimes](#service-lifetimes)) | Use a `Transient` or `Scoped` mediator |
+
+A call that fails this way leaves the service collection as it was, so a corrected call on the same collection works.
 
 The explicit registration methods check the same rules and throw an `ArgumentException` immediately.
 

@@ -498,7 +498,7 @@ public sealed class MediatorOptions
                 nameof(openBehaviorType));
         }
 
-        if (!_registrations.Exists(registration => registration.ImplementationType == openBehaviorType))
+        if (lifetime is not null || !_registrations.Exists(registration => registration.ImplementationType == openBehaviorType))
         {
             _registrations.Add(new ComponentRegistration(serviceTypeDefinition, openBehaviorType, lifetime));
         }

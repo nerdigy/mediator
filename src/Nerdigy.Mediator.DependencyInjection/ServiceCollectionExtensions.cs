@@ -26,8 +26,10 @@ public static class ServiceCollectionExtensions
     /// <para>
     /// Registration fails with an <see cref="InvalidOperationException"/> that lists every problem when a request has more
     /// than one handler, a component could never run, a scanned assembly has types that fail to load, or a singleton
-    /// mediator is combined with scoped components. A handler registered in the service collection before
-    /// <c>AddMediator</c> is kept, and an explicitly registered handler replaces a scanned one.
+    /// mediator is combined with scoped components. A call that fails this way leaves the service collection as it was. A
+    /// handler registered in the service collection before <c>AddMediator</c> is kept with its own lifetime, and an
+    /// explicitly registered handler replaces a scanned one. An explicit registration that names a lifetime sets the
+    /// lifetime of an existing mediator registration of the same implementation and keeps its position.
     /// </para>
     /// </remarks>
     /// <param name="services">The service collection.</param>
@@ -47,11 +49,17 @@ public static class ServiceCollectionExtensions
         var options = new MediatorOptions();
         configure(options);
 
-        var state = RegisterCoreServices(services, options);
-        ValidateLifetimes(state, options);
-
-        var registrar = new HandlerRegistrar(services, state);
         List<string> problems = [];
+        var scannedComponents = MediatorServiceScanner.Scan(
+            options.AssembliesToScan,
+            options.IgnoreTypeLoadFailures,
+            options.HandlerLifetime,
+            problems);
+
+        ServiceDescriptor[] descriptorsBefore = [.. services];
+        var state = RegisterCoreServices(services, options);
+        var handlersBefore = state.CopyHandlers();
+        var registrar = new HandlerRegistrar(services, state);
 
         foreach (var registration in options.Registrations)
         {
@@ -59,43 +67,52 @@ public static class ServiceCollectionExtensions
                 registration.ServiceType,
                 registration.ImplementationType,
                 registration.Lifetime ?? options.HandlerLifetime);
+            var namesLifetime = registration.Lifetime is not null;
 
             if (registration.IsSingleRegistration)
             {
-                registrar.AddHandler(descriptor, registration.ImplementationType, isExplicit: true, problems);
+                registrar.AddHandler(descriptor, registration.ImplementationType, isExplicit: true, namesLifetime, problems);
             }
             else
             {
+                if (namesLifetime)
+                {
+                    SetLifetime(services, descriptor);
+                }
+
                 services.TryAddEnumerable(descriptor);
             }
         }
 
-        if (options.AssembliesToScan.Count > 0)
+        foreach (var component in scannedComponents)
         {
-            var components = MediatorServiceScanner.Scan(
-                options.AssembliesToScan,
-                options.IgnoreTypeLoadFailures,
-                options.HandlerLifetime,
-                problems);
+            var serviceType = component.Descriptor.ServiceType;
+            var serviceTypeDefinition = serviceType.IsGenericTypeDefinition ? serviceType : serviceType.GetGenericTypeDefinition();
 
-            foreach (var component in components)
+            if (MediatorComponentRules.IsSingleRegistration(serviceTypeDefinition))
             {
-                var serviceType = component.Descriptor.ServiceType;
-                var serviceTypeDefinition = serviceType.IsGenericTypeDefinition ? serviceType : serviceType.GetGenericTypeDefinition();
-
-                if (MediatorComponentRules.IsSingleRegistration(serviceTypeDefinition))
-                {
-                    registrar.AddHandler(component.Descriptor, component.ImplementationType, isExplicit: false, problems);
-                }
-                else
-                {
-                    services.TryAddEnumerable(component.Descriptor);
-                }
+                registrar.AddHandler(component.Descriptor, component.ImplementationType, isExplicit: false, namesLifetime: false, problems);
+            }
+            else
+            {
+                services.TryAddEnumerable(component.Descriptor);
             }
         }
 
+        AddLifetimeProblem(services.Except(descriptorsBefore).Concat(registrar.DuplicateDescriptors), state, options, problems);
+
         if (problems.Count > 0)
         {
+            // Every change above is undone here, so a failed call can be corrected and repeated on the same collection.
+            services.Clear();
+
+            foreach (var descriptor in descriptorsBefore)
+            {
+                services.Add(descriptor);
+            }
+
+            state.RestoreHandlers(handlersBefore);
+
             throw new InvalidOperationException(
                 "Mediator registration failed:" +
                 Environment.NewLine +
@@ -176,28 +193,37 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Rejects a singleton mediator combined with scoped components, which would fail when the first request is sent.
+    /// Reports a singleton mediator combined with scoped components, which would fail when the first request is sent.
     /// </summary>
+    /// <param name="applied">The descriptors this call added or replaced, and the duplicates it rejected.</param>
     /// <param name="state">The registration state, holding the mediator lifetime.</param>
     /// <param name="options">The configured options.</param>
-    private static void ValidateLifetimes(MediatorRegistrationState state, MediatorOptions options)
+    /// <param name="problems">Collects the lifetime problem.</param>
+    private static void AddLifetimeProblem(
+        IEnumerable<ServiceDescriptor> applied,
+        MediatorRegistrationState state,
+        MediatorOptions options,
+        List<string> problems)
     {
         if (state.MediatorLifetime != ServiceLifetime.Singleton)
         {
             return;
         }
 
+        var scoped = applied
+            .Where(static descriptor => descriptor.Lifetime == ServiceLifetime.Scoped && descriptor.ServiceType != typeof(INotificationPublisher))
+            .ToList();
+        var namedScoped = options.Registrations
+            .Where(registration => registration.Lifetime == ServiceLifetime.Scoped && scoped.Exists(descriptor => IsRegistrationOf(descriptor, registration)))
+            .ToList();
         var scopedComponents = new List<string>();
 
-        if (options.HandlerLifetime == ServiceLifetime.Scoped
-            && (options.AssembliesToScan.Count > 0 || options.Registrations.Any(static registration => registration.Lifetime is null)))
+        if (scoped.Exists(descriptor => !namedScoped.Exists(registration => IsRegistrationOf(descriptor, registration))))
         {
             scopedComponents.Add("HandlerLifetime is Scoped");
         }
 
-        scopedComponents.AddRange(options.Registrations
-            .Where(static registration => registration.Lifetime == ServiceLifetime.Scoped)
-            .Select(static registration => $"{registration.ImplementationType.Name} is registered as Scoped"));
+        scopedComponents.AddRange(namedScoped.Select(static registration => $"{registration.ImplementationType.Name} is registered as Scoped"));
 
         if (state.Publisher.Lifetime == ServiceLifetime.Scoped)
         {
@@ -206,9 +232,41 @@ public static class ServiceCollectionExtensions
 
         if (scopedComponents.Count > 0)
         {
-            throw new InvalidOperationException(
+            problems.Add(
                 $"A singleton mediator resolves handlers from the root service provider, which cannot resolve scoped services, but {string.Join(", ", scopedComponents)}. " +
                 "Use a Transient or Scoped MediatorLifetime, or register the components as Transient or Singleton.");
+        }
+    }
+
+    /// <summary>
+    /// Determines whether a descriptor is for the service and implementation of an explicit registration.
+    /// </summary>
+    /// <param name="descriptor">A non-keyed service descriptor.</param>
+    /// <param name="registration">The explicit registration.</param>
+    /// <returns><see langword="true"/> when both name the same service and implementation.</returns>
+    private static bool IsRegistrationOf(ServiceDescriptor descriptor, ComponentRegistration registration)
+    {
+        return descriptor.ServiceType == registration.ServiceType && descriptor.ImplementationType == registration.ImplementationType;
+    }
+
+    /// <summary>
+    /// Replaces, at the same position, any registration of a descriptor's service and implementation types.
+    /// </summary>
+    /// <remarks>
+    /// Keyed, instance, and factory registrations have no <see cref="ServiceDescriptor.ImplementationType"/>, so they are left alone.
+    /// </remarks>
+    /// <param name="services">The service collection.</param>
+    /// <param name="descriptor">The descriptor that names the lifetime.</param>
+    private static void SetLifetime(IServiceCollection services, ServiceDescriptor descriptor)
+    {
+        for (var index = 0; index < services.Count; index++)
+        {
+            var existing = services[index];
+
+            if (existing.ServiceType == descriptor.ServiceType && existing.ImplementationType == descriptor.ImplementationType)
+            {
+                services[index] = descriptor;
+            }
         }
     }
 
@@ -222,13 +280,19 @@ public static class ServiceCollectionExtensions
         private readonly HashSet<Type> _existingServiceTypes = [.. services.Where(static descriptor => !descriptor.IsKeyedService).Select(static descriptor => descriptor.ServiceType)];
 
         /// <summary>
+        /// Gets the descriptors rejected because their request already has a different handler.
+        /// </summary>
+        public List<ServiceDescriptor> DuplicateDescriptors { get; } = [];
+
+        /// <summary>
         /// Adds a handler registration, or records a problem when the request already has a different handler.
         /// </summary>
         /// <param name="descriptor">The handler service descriptor.</param>
         /// <param name="implementationType">The handler implementation type.</param>
         /// <param name="isExplicit">Whether the handler was registered explicitly rather than found by scanning.</param>
+        /// <param name="namesLifetime">Whether the registration names its own lifetime rather than using the default.</param>
         /// <param name="problems">Collects duplicate handler problems.</param>
-        public void AddHandler(ServiceDescriptor descriptor, Type implementationType, bool isExplicit, List<string> problems)
+        public void AddHandler(ServiceDescriptor descriptor, Type implementationType, bool isExplicit, bool namesLifetime, List<string> problems)
         {
             var serviceType = descriptor.ServiceType;
 
@@ -239,6 +303,11 @@ public static class ServiceCollectionExtensions
                     if (isExplicit && !existing.IsExplicit)
                     {
                         state.SetHandler(serviceType, new(implementationType, IsExplicit: true));
+                    }
+
+                    if (namesLifetime)
+                    {
+                        SetLifetime(services, descriptor);
                     }
 
                     return;
@@ -258,6 +327,7 @@ public static class ServiceCollectionExtensions
                     return;
                 }
 
+                DuplicateDescriptors.Add(descriptor);
                 problems.Add(
                     $"{MediatorComponentRules.FormatTypeName(serviceType)} has more than one handler: {existing.ImplementationType.FullName} and {implementationType.FullName}. " +
                     (isExplicit

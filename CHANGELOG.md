@@ -3,6 +3,48 @@
 All notable changes to the Nerdigy.Mediator packages are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- **Caller cancellation is no longer wrapped when an exception action is canceled.** An exception action that throws
+  `OperationCanceledException` while the caller's token is canceled is not a processing failure. The remaining actions
+  run and the caller gets the original exception, on requests and streams. Before, the caller got
+  `MediatorExceptionProcessingException`.
+- **Parallel publish keeps every handler failure when telemetry is listening.** The task `Publish` returns carries all
+  handler exceptions with or without an activity or meter listener. Before, a listener reduced it to the first.
+- **Stream telemetry stays on the stream activity.** A stream exception handler that recovers after the first item now
+  sets `nerdigy.mediator.exception.handled` on the stream's activity, never on an enclosing one, and activities
+  started by handler code are children of the stream activity for every item.
+- **A pipeline component that fails to resolve goes through exception processing.** When a preprocessor, behavior, or
+  postprocessor cannot be resolved, `Send` returns a faulted task, and exception handlers and actions run, as they
+  already did for a missing handler and for streams. Before, `Send` threw synchronously unless telemetry was listening.
+  `Publish` likewise returns a faulted task when notification handlers cannot be resolved or a publisher throws before
+  it returns a task.
+- **The singleton mediator check is part of the aggregated registration error.** It is listed with the other problems
+  under `Mediator registration failed:` instead of hiding them behind its own exception.
+- **A failed `AddMediator` call leaves the service collection unchanged**, so a corrected call on the same collection
+  works.
+- **An explicit registration that names a lifetime applies it to an existing registration** of the same
+  implementation, such as one an earlier `AddMediator` call found by scanning, and keeps its position. Before, the
+  lifetime was dropped without an error. A request or stream handler registered directly in the service collection
+  before `AddMediator` still wins and keeps its own lifetime, and instance and factory registrations are left alone.
+- **`MediatorRegistry.RegisterRequest<TRequest, TResponse>` accepts a request that implements both `IRequest` and
+  `IRequest<TResponse>`** when `TResponse` is not `Unit`, so `AddRequestHandler` works for it under Native AOT.
+- **`nerdigy.mediator.operation.active` no longer goes negative when the first meter listener attaches** while
+  operations are in flight. An operation is subtracted only if it was added when it started. A listener that attaches
+  while another listener is already attached still sees the decrements of operations that started before it; see
+  [Observability](docs/guide/observability.md#metrics).
+
+### Changed
+
+- **`Nerdigy.Mediator.DependencyInjection` depends on `Microsoft.Extensions.DependencyInjection.Abstractions` 10.0.0
+  or later**, not the newest patch, so an application that pins an earlier 10.0.x can upgrade.
+- **Package validation compares the public API with 2.0.0** on every pack, so a 2.x change cannot break it by accident.
+- **Releases** publish only from commits on `main`, run in the `nuget` environment, and run the format check and the
+  Native AOT smoke test before packing. Workflow actions are pinned to commit SHAs.
+- **Docs.** `llms.txt` and `llms-full.txt` are deployed with the site. The docs build uses Node 24.
+
 ## 2.0.0
 
 2.0 rebuilds dispatch for speed and Native AOT, fixes exception-processing bugs, and makes registration mistakes fail at

@@ -12,7 +12,7 @@ namespace Nerdigy.Mediator.DependencyInjection;
 /// </remarks>
 internal sealed class MediatorRegistrationState
 {
-    private readonly Dictionary<Type, HandlerRegistration> _handlers = [];
+    private Dictionary<Type, HandlerRegistration> _handlers = [];
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediatorRegistrationState"/> class.
@@ -72,6 +72,24 @@ internal sealed class MediatorRegistrationState
     public void SetHandler(Type serviceType, HandlerRegistration registration)
     {
         _handlers[serviceType] = registration;
+    }
+
+    /// <summary>
+    /// Copies the tracked handlers, so a failed <c>AddMediator</c> call can restore them.
+    /// </summary>
+    /// <returns>A copy of the tracked handlers.</returns>
+    public Dictionary<Type, HandlerRegistration> CopyHandlers()
+    {
+        return new Dictionary<Type, HandlerRegistration>(_handlers);
+    }
+
+    /// <summary>
+    /// Replaces the tracked handlers with a copy taken earlier.
+    /// </summary>
+    /// <param name="handlers">The handlers to track.</param>
+    public void RestoreHandlers(Dictionary<Type, HandlerRegistration> handlers)
+    {
+        _handlers = handlers;
     }
 
     /// <summary>

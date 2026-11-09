@@ -1,0 +1,30 @@
+# Nerdigy.Mediator
+
+> Mediator runtime for .NET 10 with request/response, notification fan-out, async streaming, pipelines, and typed exception handling.
+
+Packages:
+
+- `Nerdigy.Mediator.Contracts`: contracts and delegates only.
+- `Nerdigy.Mediator`: core runtime, dispatch pipeline, tracing and metrics.
+- `Nerdigy.Mediator.DependencyInjection`: DI registration, assembly scanning or explicit registration, startup validation.
+
+## Canonical Pages
+
+- [LLM Quickstart](https://nerdigy.github.io/mediator/guide/llm-quickstart.html): LLM-first onboarding prompts, output contracts, and validation commands.
+- [Decision Matrix](https://nerdigy.github.io/mediator/guide/decision-matrix.html): Fast contract and dispatch selection (`Send`, `Publish`, `CreateStream`).
+- [Recipe Catalog](https://nerdigy.github.io/mediator/guide/recipes.html): Copy-ready implementation prompts by use case.
+- [Getting Started](https://nerdigy.github.io/mediator/guide/getting-started.html): Install, register services, send first request, publish first notification.
+- [Dependency Injection](https://nerdigy.github.io/mediator/guide/dependency-injection.html): `AddMediator`, assembly scanning, explicit registration, registration errors, lifetimes, and publisher strategy setup.
+- [Requests](https://nerdigy.github.io/mediator/guide/requests.html): Request/response and void request patterns.
+- [Notifications](https://nerdigy.github.io/mediator/guide/notifications.html): Notification handlers, fan-out, and publisher strategy behavior.
+- [Streaming](https://nerdigy.github.io/mediator/guide/streaming.html): `IStreamRequest<T>` and `CreateStream` usage.
+- [Pipelines and Processors](https://nerdigy.github.io/mediator/guide/pipelines.html): Pre-processors, behaviors, post-processors, and ordering.
+- [Exception Handling](https://nerdigy.github.io/mediator/guide/exception-handling.html): Exception handlers/actions and recovery semantics.
+- [Performance](https://nerdigy.github.io/mediator/guide/performance.html): Dispatch path, cold start vs. warm path, and benchmarks.
+- [Native AOT](https://nerdigy.github.io/mediator/guide/native-aot.html): Explicit registration and limitations under Native AOT and trimming.
+- [Observability](https://nerdigy.github.io/mediator/guide/observability.html): Activity source, meter, instruments, and tags.
+- [Migrating to 2.0](https://nerdigy.github.io/mediator/guide/migrating-to-v2.html): Breaking changes from 1.x and how to upgrade.
+- [Troubleshooting](https://nerdigy.github.io/mediator/guide/troubleshooting.html): Symptom to fix mapping for common failures.
+- [API Cheatsheet](https://nerdigy.github.io/mediator/api/cheatsheet.html): Signature-first API summary for quick generation.
+- [Contracts Reference](https://nerdigy.github.io/mediator/api/contracts.html): Full contracts reference from `Nerdigy.Mediator.Contracts`.
+- [Runtime Behavior](https://nerdigy.github.io/mediator/api/runtime-behavior.html): Runtime execution and ordering semantics.
