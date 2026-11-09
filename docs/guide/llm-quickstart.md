@@ -131,11 +131,13 @@ Before final output:
 
 ## Fast Validation Commands
 
+Run these from the directory that holds your solution file. If the directory holds more than one solution or project file, add the file name after each verb.
+
 ```bash
 dotnet restore
-dotnet build Mediator.slnx -c Release
-dotnet test Mediator.slnx -c Release
-dotnet format Mediator.slnx --verify-no-changes
+dotnet build -c Release
+dotnet test -c Release
+dotnet format --verify-no-changes
 ```
 
 ## Related Pages
