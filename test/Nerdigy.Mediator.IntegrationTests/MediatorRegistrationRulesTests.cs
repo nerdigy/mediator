@@ -204,6 +204,39 @@ public sealed class MediatorRegistrationRulesTests
     }
 
     /// <summary>
+    /// Verifies the default handler lifetime is reported when it would register a scoped component under a singleton mediator.
+    /// </summary>
+    [Fact]
+    public void AddMediator_WhenSingletonMediatorHasScopedDefaultLifetime_ReportsHandlerLifetime()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            new ServiceCollection().AddMediator(options =>
+            {
+                options.MediatorLifetime = ServiceLifetime.Singleton;
+                options.HandlerLifetime = ServiceLifetime.Scoped;
+                options.AddRequestHandler<RuleQuery, string, RuleQueryHandlerA>();
+            }));
+
+        Assert.Contains("but HandlerLifetime is Scoped.", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies a scoped notification publisher is reported under a singleton mediator.
+    /// </summary>
+    [Fact]
+    public void AddMediator_WhenSingletonMediatorHasScopedPublisher_ReportsPublisher()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            new ServiceCollection().AddMediator(options =>
+            {
+                options.MediatorLifetime = ServiceLifetime.Singleton;
+                options.UseNotificationPublisher<TaskWhenAllPublisher>(ServiceLifetime.Scoped);
+            }));
+
+        Assert.Contains("but the notification publisher is Scoped.", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies a singleton mediator with scoped components and a duplicate handler lists both problems in one exception,
     /// whichever of the two handlers is scoped.
     /// </summary>
@@ -510,6 +543,182 @@ public sealed class MediatorRegistrationRulesTests
     }
 
     /// <summary>
+    /// Verifies a singleton mediator works from the root provider under scope validation.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task AddMediator_WhenSingletonMediatorHasNoScopedComponents_WorksFromRootProvider()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<RuleEventLog>();
+        services.AddMediator(options =>
+        {
+            options.MediatorLifetime = ServiceLifetime.Singleton;
+            options
+                .AddRequestHandler<ExplicitQuery, string, ExplicitQueryHandler>()
+                .AddNotificationHandler<ExplicitNotification, ExplicitNotificationHandler>(ServiceLifetime.Singleton)
+                .AddStreamRequestHandler<ExplicitStream, int, ExplicitStreamHandler>();
+        });
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
+        var mediator = provider.GetRequiredService<IMediator>();
+
+        var response = await mediator.Send(new ExplicitQuery());
+        await mediator.Publish(new ExplicitNotification());
+        var streamed = await ToListAsync(mediator.CreateStream(new ExplicitStream()));
+
+        Assert.Same(mediator, provider.GetRequiredService<IMediator>());
+        Assert.Same(mediator, provider.GetRequiredService<ISender>());
+        Assert.Equal("query", response);
+        Assert.Equal([10, 20], streamed);
+        Assert.Equal(["query", "notification"], provider.GetRequiredService<RuleEventLog>().Events);
+    }
+
+    /// <summary>
+    /// Verifies an open stream behavior registered explicitly runs for a stream request.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task AddOpenStreamBehavior_WhenStreaming_RunsBehavior()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<RuleEventLog>();
+        services.AddMediator(options => options
+            .AddStreamRequestHandler<ExplicitStream, int, ExplicitStreamHandler>()
+            .AddOpenStreamBehavior(typeof(OpenRuleStreamBehavior<,>)));
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        using var scope = provider.CreateScope();
+
+        var streamed = await ToListAsync(scope.ServiceProvider.GetRequiredService<IMediator>().CreateStream(new ExplicitStream()));
+
+        Assert.Equal([10, 20], streamed);
+        Assert.Equal(["open-stream-behavior"], provider.GetRequiredService<RuleEventLog>().Events);
+    }
+
+    /// <summary>
+    /// Verifies a stream exception handler registered explicitly replaces a failed stream.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task AddStreamExceptionHandler_WhenStreamFails_ReplacesStream()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<RuleEventLog>();
+        services.AddMediator(options => options
+            .AddStreamRequestHandler<FailingRuleStream, int, FailingRuleStreamHandler>()
+            .AddStreamExceptionHandler<FailingRuleStream, int, InvalidOperationException, FailingRuleStreamExceptionHandler>());
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        using var scope = provider.CreateScope();
+
+        var streamed = await ToListAsync(scope.ServiceProvider.GetRequiredService<IMediator>().CreateStream(new FailingRuleStream()));
+
+        Assert.Equal([7], streamed);
+        Assert.Equal(["stream-recovered"], provider.GetRequiredService<RuleEventLog>().Events);
+    }
+
+    /// <summary>
+    /// Verifies an open behavior type that is abstract or an interface is rejected.
+    /// </summary>
+    /// <param name="openBehaviorType">The open behavior type.</param>
+    [Theory]
+    [InlineData(typeof(AbstractOpenRuleBehavior<,>))]
+    [InlineData(typeof(IPipelineBehavior<,>))]
+    public void AddOpenBehavior_WhenTypeIsNotConcreteClass_Throws(Type openBehaviorType)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            new ServiceCollection().AddMediator(options => options.AddOpenBehavior(openBehaviorType)));
+
+        Assert.Contains("must be a concrete class", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies an open behavior type that does not implement the behavior interface is rejected.
+    /// </summary>
+    [Fact]
+    public void AddOpenBehavior_WhenTypeDoesNotImplementInterface_Throws()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            new ServiceCollection().AddMediator(options => options.AddOpenBehavior(typeof(NotAPipelineBehavior<,>))));
+
+        Assert.Contains("must implement IPipelineBehavior<TRequest, TResponse>", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies an unsupported notification publish strategy is rejected.
+    /// </summary>
+    [Fact]
+    public void UseNotificationPublishStrategy_WhenStrategyIsUnsupported_Throws()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ServiceCollection().AddMediator(options => options.UseNotificationPublishStrategy((NotificationPublishStrategy)999)));
+
+        Assert.Contains("Unsupported notification publish strategy.", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies a behavior closed over an abstract request type is rejected with the abstract class wording.
+    /// </summary>
+    [Fact]
+    public void AddBehavior_WhenTargetingAbstractMessage_ThrowsWithAbstractClassWording()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            new ServiceCollection().AddMediator(options => options.AddBehavior<AbstractRuleRequest, string, AbstractRuleRequestBehavior>()));
+
+        Assert.Contains("AbstractRuleRequest is an abstract class. Components are resolved", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies a handler closed over a non-concrete request type is rejected with the handler message.
+    /// </summary>
+    [Fact]
+    public void AddRequestHandler_WhenTargetingNonConcreteRequest_ThrowsWithHandlerMessage()
+    {
+        var abstractRequest = Assert.Throws<ArgumentException>(() =>
+            new ServiceCollection().AddMediator(options => options.AddRequestHandler<AbstractRuleRequest, string, AbstractRuleRequestHandler>()));
+        var interfaceRequest = Assert.Throws<ArgumentException>(() =>
+            new ServiceCollection().AddMediator(options => options.AddRequestHandler<IRuleRequest, string, InterfaceRuleRequestHandler>()));
+
+        Assert.Contains("AbstractRuleRequest is an abstract class. Requests are dispatched by their concrete type, so this handler never runs.", abstractRequest.Message, StringComparison.Ordinal);
+        Assert.Contains("IRuleRequest is an interface. Requests are dispatched by their concrete type, so this handler never runs.", interfaceRequest.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies keyed registrations neither count as an existing handler nor take a lifetime from an explicit registration.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task AddMediator_WhenKeyedRegistrationsExist_IgnoresThem()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<RuleEventLog>();
+        services.AddKeyedTransient<IRequestHandler<RuleQuery, string>, RuleQueryHandlerB>("key");
+        services.AddKeyedTransient<IPipelineBehavior<RuleQuery, string>, ARuleQueryBehavior>("key");
+        var keyed = services.Where(static descriptor => descriptor.IsKeyedService).ToList();
+
+        services.AddMediator(options => options
+            .AddRequestHandler<RuleQuery, string, RuleQueryHandlerA>()
+            .AddBehavior<RuleQuery, string, ARuleQueryBehavior>(ServiceLifetime.Singleton));
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+
+        Assert.Equal("A", await provider.GetRequiredService<IMediator>().Send(new RuleQuery()));
+        Assert.Equal(["A"], provider.GetRequiredService<RuleEventLog>().Events);
+        Assert.Equal(keyed, services.Where(static descriptor => descriptor.IsKeyedService));
+    }
+
+    /// <summary>
+    /// Verifies an abstract component in a scanned assembly is skipped.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task AddMediator_WhenScannedAssemblyHasAbstractHandler_SkipsIt()
+    {
+        var services = new ServiceCollection();
+        Scan(services, typeof(AbstractRuleQueryHandler), typeof(RuleQueryHandlerA));
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+
+        Assert.Equal("A", await provider.GetRequiredService<IMediator>().Send(new RuleQuery()));
+    }
+
+    /// <summary>
     /// Verifies a later <c>AddMediator</c> call cannot change settings the first call made, but can add handlers.
     /// </summary>
     [Fact]
@@ -619,6 +828,24 @@ public sealed class MediatorRegistrationRulesTests
     private static void Scan(IServiceCollection services, params Type[] types)
     {
         services.AddMediator(options => options.RegisterServicesFromAssembly(new TypeListAssembly(types)));
+    }
+
+    /// <summary>
+    /// Collects an asynchronous sequence into a list.
+    /// </summary>
+    /// <typeparam name="T">The item type.</typeparam>
+    /// <param name="source">The sequence.</param>
+    /// <returns>The items.</returns>
+    private static async Task<List<T>> ToListAsync<T>(IAsyncEnumerable<T> source)
+    {
+        List<T> items = [];
+
+        await foreach (var item in source)
+        {
+            items.Add(item);
+        }
+
+        return items;
     }
 
     /// <summary>

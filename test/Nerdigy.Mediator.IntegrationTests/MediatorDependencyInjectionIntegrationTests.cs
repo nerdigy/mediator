@@ -120,6 +120,7 @@ public sealed class MediatorDependencyInjectionIntegrationTests
             }));
 
         Assert.Equal("openBehaviorType", exception.ParamName);
+        Assert.Contains("must be an open generic type definition", exception.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -363,13 +364,16 @@ public sealed class MediatorDependencyInjectionIntegrationTests
     }
 
     /// <summary>
-    /// Verifies configuring a publisher instance registers that instance one time as <see cref="INotificationPublisher"/>.
+    /// Verifies configuring a publisher instance registers that instance one time and publishes through it.
     /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
-    public void AddMediator_WhenPublisherInstanceConfigured_RegistersInstanceOnce()
+    public async Task AddMediator_WhenPublisherInstanceConfigured_RegistersInstanceOnceAndPublishesThroughIt()
     {
-        var publisherInstance = new TaskWhenAllPublisher();
+        var tracker = new IntegrationTracker();
+        var publisherInstance = new RecordingNotificationPublisher(tracker);
         var services = new ServiceCollection();
+        services.AddSingleton(tracker);
 
         services.AddMediator(options =>
         {
@@ -380,6 +384,44 @@ public sealed class MediatorDependencyInjectionIntegrationTests
         var descriptor = Assert.Single(services, static descriptor => descriptor.ServiceType == typeof(INotificationPublisher));
         Assert.Same(publisherInstance, descriptor.ImplementationInstance);
         Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
+
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        await provider.GetRequiredService<IPublisher>().Publish(new IntegrationNotification("n1"), CancellationToken.None);
+
+        Assert.Equal(1, publisherInstance.PublishCount);
+        Assert.Equal(2, tracker.NotificationCount);
+    }
+
+    /// <summary>
+    /// Verifies a publisher type is resolved with the configured lifetime and notifications are published through it.
+    /// </summary>
+    /// <param name="lifetime">The publisher lifetime.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(ServiceLifetime.Singleton)]
+    [InlineData(ServiceLifetime.Scoped)]
+    [InlineData(ServiceLifetime.Transient)]
+    public async Task AddMediator_WhenPublisherTypeConfigured_PublishesThroughItWithConfiguredLifetime(ServiceLifetime lifetime)
+    {
+        using var provider = BuildProvider(options =>
+        {
+            options.MediatorLifetime = ServiceLifetime.Scoped;
+            options.UseNotificationPublisher<RecordingNotificationPublisher>(lifetime);
+        });
+        var tracker = provider.GetRequiredService<IntegrationTracker>();
+        await using var firstScope = provider.CreateAsyncScope();
+        await using var secondScope = provider.CreateAsyncScope();
+        var publisher = firstScope.ServiceProvider.GetRequiredService<INotificationPublisher>();
+        var sameScope = firstScope.ServiceProvider.GetRequiredService<INotificationPublisher>();
+        var otherScope = secondScope.ServiceProvider.GetRequiredService<INotificationPublisher>();
+
+        await firstScope.ServiceProvider.GetRequiredService<IPublisher>().Publish(new IntegrationNotification("n1"), CancellationToken.None);
+
+        Assert.IsType<RecordingNotificationPublisher>(publisher);
+        Assert.Equal(lifetime != ServiceLifetime.Transient, ReferenceEquals(publisher, sameScope));
+        Assert.Equal(lifetime == ServiceLifetime.Singleton, ReferenceEquals(publisher, otherScope));
+        Assert.Contains("publisher", tracker.Events);
+        Assert.Equal(2, tracker.NotificationCount);
     }
 
     /// <summary>
